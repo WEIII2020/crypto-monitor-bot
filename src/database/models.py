@@ -1,5 +1,3 @@
-from datetime import datetime
-from typing import Optional
 from sqlalchemy import (
     Column, Integer, String, Boolean, DECIMAL, TIMESTAMP,
     ForeignKey, Index, BigInteger, Text, JSON
@@ -33,7 +31,7 @@ class PriceData(Base):
     __tablename__ = 'price_data'
 
     id = Column(BigInteger, primary_key=True)
-    symbol_id = Column(Integer, ForeignKey('symbols.id'), nullable=False)
+    symbol_id = Column(Integer, ForeignKey('symbols.id', ondelete='CASCADE'), nullable=False)
     exchange = Column(String(20), nullable=False)
     timestamp = Column(TIMESTAMP, nullable=False)
     open = Column(DECIMAL(20, 8))
@@ -55,7 +53,7 @@ class Alert(Base):
     __tablename__ = 'alerts'
 
     id = Column(BigInteger, primary_key=True)
-    symbol_id = Column(Integer, ForeignKey('symbols.id'), nullable=False)
+    symbol_id = Column(Integer, ForeignKey('symbols.id', ondelete='CASCADE'), nullable=False)
     exchange = Column(String(20), nullable=False)
     alert_type = Column(String(20), nullable=False)
     alert_level = Column(String(10), nullable=False)
@@ -78,7 +76,7 @@ class MarketMakerAnalysis(Base):
     __tablename__ = 'market_maker_analysis'
 
     id = Column(BigInteger, primary_key=True)
-    symbol_id = Column(Integer, ForeignKey('symbols.id'), nullable=False)
+    symbol_id = Column(Integer, ForeignKey('symbols.id', ondelete='CASCADE'), nullable=False)
     exchange = Column(String(20), nullable=False)
     detected_at = Column(TIMESTAMP, nullable=False)
     phase = Column(String(20), nullable=False)
@@ -112,6 +110,6 @@ class UserConfig(Base):
     night_end_hour = Column(Integer, default=7)
 
     # Subscribed symbols (JSON array)
-    subscribed_symbols = Column(JSON, default=list)
+    subscribed_symbols = Column(JSON, default=lambda: [])
 
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())

@@ -22,11 +22,12 @@ def setup_database():
     # Create cleanup function
     with engine.connect() as conn:
         conn.execute(text("""
-            CREATE OR REPLACE FUNCTION cleanup_old_price_data()
+            CREATE OR REPLACE FUNCTION cleanup_old_data()
             RETURNS void AS $$
             BEGIN
-                DELETE FROM price_data
-                WHERE timestamp < NOW() - INTERVAL '6 months';
+                DELETE FROM price_data WHERE timestamp < NOW() - INTERVAL '6 months';
+                DELETE FROM alerts WHERE sent_at < NOW() - INTERVAL '6 months';
+                DELETE FROM market_maker_analysis WHERE detected_at < NOW() - INTERVAL '6 months';
             END;
             $$ LANGUAGE plpgsql;
         """))

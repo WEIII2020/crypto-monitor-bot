@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime
-from src.database.models import Symbol, PriceData, Alert
+from src.database.models import Symbol, PriceData, Alert, MarketMakerAnalysis, UserConfig
 
 
 def test_symbol_model_creation():
@@ -52,3 +52,28 @@ def test_alert_model_creation():
     assert alert.alert_type == 'PRICE_SPIKE'
     assert alert.alert_level == 'CRITICAL'
     assert alert.change_percent == 23.5
+
+
+def test_market_maker_analysis_model_creation():
+    """Test creating a MarketMakerAnalysis model instance"""
+    analysis = MarketMakerAnalysis(
+        symbol_id=1,
+        exchange='binance',
+        detected_at=datetime.now(),
+        phase='ACCUMULATION',
+        confidence='HIGH',
+        metrics={'volume_ratio': 5.2}
+    )
+    assert analysis.phase == 'ACCUMULATION'
+    assert analysis.confidence == 'HIGH'
+
+
+def test_user_config_model_creation():
+    """Test creating a UserConfig model instance"""
+    user_config = UserConfig(
+        telegram_user_id=123456789,
+        username='testuser',
+        warning_threshold_5m=12.5
+    )
+    assert user_config.telegram_user_id == 123456789
+    assert user_config.warning_threshold_5m == 12.5
