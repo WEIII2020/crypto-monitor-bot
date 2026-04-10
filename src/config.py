@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,7 +10,10 @@ class Config:
     def __init__(self):
         # Required fields
         self.telegram_bot_token = self._get_required('TELEGRAM_BOT_TOKEN')
-        self.telegram_chat_id = int(self._get_required('TELEGRAM_CHAT_ID'))
+        try:
+            self.telegram_chat_id = int(self._get_required('TELEGRAM_CHAT_ID'))
+        except ValueError as e:
+            raise ValueError(f'TELEGRAM_CHAT_ID must be a valid integer: {e}')
 
         # Database
         self.database_url = os.getenv(
@@ -24,15 +26,37 @@ class Config:
         )
 
         # Alert thresholds
-        self.warning_threshold_5m = float(os.getenv('WARNING_THRESHOLD_5M', '10.0'))
-        self.critical_threshold_5m = float(os.getenv('CRITICAL_THRESHOLD_5M', '20.0'))
-        self.volume_warning_multiplier = float(os.getenv('VOLUME_WARNING_MULTIPLIER', '5.0'))
-        self.volume_critical_multiplier = float(os.getenv('VOLUME_CRITICAL_MULTIPLIER', '10.0'))
+        try:
+            self.warning_threshold_5m = float(os.getenv('WARNING_THRESHOLD_5M', '10.0'))
+        except ValueError as e:
+            raise ValueError(f'WARNING_THRESHOLD_5M must be a valid number: {e}')
+
+        try:
+            self.critical_threshold_5m = float(os.getenv('CRITICAL_THRESHOLD_5M', '20.0'))
+        except ValueError as e:
+            raise ValueError(f'CRITICAL_THRESHOLD_5M must be a valid number: {e}')
+
+        try:
+            self.volume_warning_multiplier = float(os.getenv('VOLUME_WARNING_MULTIPLIER', '5.0'))
+        except ValueError as e:
+            raise ValueError(f'VOLUME_WARNING_MULTIPLIER must be a valid number: {e}')
+
+        try:
+            self.volume_critical_multiplier = float(os.getenv('VOLUME_CRITICAL_MULTIPLIER', '10.0'))
+        except ValueError as e:
+            raise ValueError(f'VOLUME_CRITICAL_MULTIPLIER must be a valid number: {e}')
 
         # Monitoring settings
         self.enable_night_mode = os.getenv('ENABLE_NIGHT_MODE', 'false').lower() == 'true'
-        self.night_start_hour = int(os.getenv('NIGHT_START_HOUR', '23'))
-        self.night_end_hour = int(os.getenv('NIGHT_END_HOUR', '7'))
+        try:
+            self.night_start_hour = int(os.getenv('NIGHT_START_HOUR', '23'))
+        except ValueError as e:
+            raise ValueError(f'NIGHT_START_HOUR must be a valid integer: {e}')
+
+        try:
+            self.night_end_hour = int(os.getenv('NIGHT_END_HOUR', '7'))
+        except ValueError as e:
+            raise ValueError(f'NIGHT_END_HOUR must be a valid integer: {e}')
 
         # Logging
         self.log_level = os.getenv('LOG_LEVEL', 'INFO')
