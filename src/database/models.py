@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Boolean, DECIMAL, TIMESTAMP,
-    ForeignKey, Index, BigInteger, Text, JSON
+    ForeignKey, Index, Text, JSON
 )
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
@@ -30,7 +30,7 @@ class PriceData(Base):
     """Historical price and volume data (OHLCV)"""
     __tablename__ = 'price_data'
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     symbol_id = Column(Integer, ForeignKey('symbols.id', ondelete='CASCADE'), nullable=False)
     exchange = Column(String(20), nullable=False)
     timestamp = Column(TIMESTAMP, nullable=False)
@@ -52,7 +52,7 @@ class Alert(Base):
     """Alert records sent to users"""
     __tablename__ = 'alerts'
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     symbol_id = Column(Integer, ForeignKey('symbols.id', ondelete='CASCADE'), nullable=False)
     exchange = Column(String(20), nullable=False)
     alert_type = Column(String(20), nullable=False)
@@ -75,7 +75,7 @@ class MarketMakerAnalysis(Base):
     """Market maker phase detection records"""
     __tablename__ = 'market_maker_analysis'
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     symbol_id = Column(Integer, ForeignKey('symbols.id', ondelete='CASCADE'), nullable=False)
     exchange = Column(String(20), nullable=False)
     detected_at = Column(TIMESTAMP, nullable=False)
@@ -95,7 +95,7 @@ class UserConfig(Base):
     __tablename__ = 'user_config'
 
     id = Column(Integer, primary_key=True)
-    telegram_user_id = Column(BigInteger, unique=True, nullable=False)
+    telegram_user_id = Column(Integer, unique=True, nullable=False)
     username = Column(String(100))
 
     # Alert thresholds
