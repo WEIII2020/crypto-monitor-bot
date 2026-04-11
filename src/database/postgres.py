@@ -70,6 +70,10 @@ class PostgresClient:
             logger.debug(f"Inserted symbol: {symbol_data['symbol']} on {symbol_data['exchange']}")
             return new_symbol.id
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10)
+    )
     async def get_symbol(self, symbol: str, exchange: str) -> Optional[Dict]:
         """Get symbol by name and exchange"""
         async with self.async_session() as session:
@@ -105,6 +109,10 @@ class PostgresClient:
             await session.refresh(new_price)
             return new_price.id
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10)
+    )
     async def insert_alert(self, alert_data: Dict) -> int:
         """Insert alert record"""
         async with self.async_session() as session:
@@ -114,6 +122,10 @@ class PostgresClient:
             await session.refresh(new_alert)
             return new_alert.id
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10)
+    )
     async def get_recent_prices(
         self,
         symbol_id: int,
