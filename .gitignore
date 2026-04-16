@@ -47,3 +47,14 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Deployment artifacts
+*.tar.gz
+*.pid
+deploy_config.txt
+
+# Claude artifacts
+.claude/
+
+# Local service files
+*.plist

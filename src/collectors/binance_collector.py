@@ -8,6 +8,7 @@ from src.collectors.base_collector import BaseCollector
 from src.database.redis_client import redis_client
 from src.database.postgres import postgres_client
 from src.utils.logger import logger
+from src.utils.performance_monitor import performance_monitor
 
 
 class BinanceCollector(BaseCollector):
@@ -150,45 +151,59 @@ class BinanceCollector(BaseCollector):
 
             # Store in Redis (real-time cache)
             if redis_client.redis:
-                await redis_client.store_price(
-                    self.exchange,
-                    symbol,
-                    timestamp,
-                    price_data
-                )
+                try:
+                    await redis_client.store_price(
+                        self.exchange,
+                        symbol,
+                        timestamp,
+                        price_data
+                    )
+                    performance_monitor.record_redis_write(success=True)
+                except Exception as e:
+                    performance_monitor.record_redis_write(success=False)
+                    logger.error(f"Redis write failed for {symbol}: {e}")
 
-            # Store in PostgreSQL (historical data)
+            # Store in PostgreSQL (historical data) - with fallback
             if postgres_client:
-                # Get or create symbol
-                symbol_record = await postgres_client.get_symbol(symbol, self.exchange)
-                if not symbol_record:
-                    # Parse base/quote currencies
-                    parts = symbol.split('/')
-                    base = parts[0] if len(parts) > 0 else symbol
-                    quote = parts[1] if len(parts) > 1 else 'USDT'
+                try:
+                    # Get or create symbol
+                    symbol_record = await postgres_client.get_symbol(symbol, self.exchange)
+                    if not symbol_record:
+                        # Parse base/quote currencies
+                        parts = symbol.split('/')
+                        base = parts[0] if len(parts) > 0 else symbol
+                        quote = parts[1] if len(parts) > 1 else 'USDT'
 
-                    symbol_id = await postgres_client.insert_symbol({
-                        'symbol': symbol,
+                        symbol_id = await postgres_client.insert_symbol({
+                            'symbol': symbol,
+                            'exchange': self.exchange,
+                            'base_currency': base,
+                            'quote_currency': quote,
+                            'is_active': True
+                        })
+                    else:
+                        symbol_id = symbol_record['id']
+
+                    # Insert price data
+                    await postgres_client.insert_price_data({
+                        'symbol_id': symbol_id,
                         'exchange': self.exchange,
-                        'base_currency': base,
-                        'quote_currency': quote,
-                        'is_active': True
+                        'timestamp': datetime.fromtimestamp(timestamp),
+                        'open': float(message['o']),
+                        'high': float(message['h']),
+                        'low': float(message['l']),
+                        'close': float(message['c']),
+                        'volume': volume
                     })
-                else:
-                    symbol_id = symbol_record['id']
+                    performance_monitor.record_postgres_write(success=True)
+                except Exception as db_error:
+                    # PostgreSQL write failed - log but continue
+                    # Redis cache is already updated, so detection still works
+                    performance_monitor.record_postgres_write(success=False)
+                    logger.warning(f"PostgreSQL write failed for {symbol} (Redis OK): {db_error}")
 
-                # Insert price data
-                await postgres_client.insert_price_data({
-                    'symbol_id': symbol_id,
-                    'exchange': self.exchange,
-                    'timestamp': datetime.fromtimestamp(timestamp),
-                    'open': float(message['o']),
-                    'high': float(message['h']),
-                    'low': float(message['l']),
-                    'close': float(message['c']),
-                    'volume': volume
-                })
-
+            # Record message processing
+            performance_monitor.record_message(symbol)
             logger.debug(f"Processed {symbol}: ${price:.2f}, Volume: {volume:.2f}")
 
         except Exception as e:

@@ -25,14 +25,14 @@ class Config:
             'redis://:password@localhost:6379/0'
         )
 
-        # Alert thresholds
+        # Alert thresholds (优化后 - 降低误报)
         try:
-            self.warning_threshold_5m = float(os.getenv('WARNING_THRESHOLD_5M', '10.0'))
+            self.warning_threshold_5m = float(os.getenv('WARNING_THRESHOLD_5M', '15.0'))
         except ValueError as e:
             raise ValueError(f'WARNING_THRESHOLD_5M must be a valid number: {e}')
 
         try:
-            self.critical_threshold_5m = float(os.getenv('CRITICAL_THRESHOLD_5M', '20.0'))
+            self.critical_threshold_5m = float(os.getenv('CRITICAL_THRESHOLD_5M', '25.0'))
         except ValueError as e:
             raise ValueError(f'CRITICAL_THRESHOLD_5M must be a valid number: {e}')
 

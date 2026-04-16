@@ -120,6 +120,17 @@ class RedisClient:
         status = await self.redis.get(key)
         return status or "disconnected"
 
+    async def get(self, key: str) -> Optional[str]:
+        """Get value by key"""
+        return await self.redis.get(key)
+
+    async def set(self, key: str, value: str, ex: Optional[int] = None):
+        """Set value with optional expiration (seconds)"""
+        if ex:
+            await self.redis.setex(key, ex, value)
+        else:
+            await self.redis.set(key, value)
+
 
 # Global client instance
 redis_client = RedisClient()

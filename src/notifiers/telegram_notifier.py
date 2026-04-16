@@ -2,11 +2,13 @@
 
 import asyncio
 from typing import Dict
+from datetime import datetime
 from telegram import Bot
 from telegram.error import TelegramError
 
 from src.config import config
 from src.utils.logger import logger
+from src.utils.performance_monitor import performance_monitor
 from src.database.postgres import postgres_client
 
 
@@ -47,6 +49,8 @@ class TelegramNotifier:
                     'message': alert_data['message']
                 })
 
+            # Record alert in performance monitor
+            performance_monitor.record_alert()
             logger.info(f"Alert sent: {alert_data['symbol']} {alert_data['change_percent']}%")
 
         except TelegramError as e:
@@ -59,6 +63,9 @@ class TelegramNotifier:
         level_emoji = '🚨' if alert_data['alert_level'] == 'CRITICAL' else '⚠️'
         direction = '📈' if alert_data['change_percent'] > 0 else '📉'
 
+        # Format time properly
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
         message = f"""
 {level_emoji} <b>{alert_data['alert_level']} ALERT</b>
 
@@ -67,6 +74,6 @@ class TelegramNotifier:
 💰 Current Price: ${alert_data['price']:.2f}
 📊 Change: <b>{alert_data['change_percent']:+.2f}%</b> (5 min)
 
-⏰ Time: {asyncio.get_event_loop().time()}
+⏰ Time: {current_time}
 """
         return message.strip()

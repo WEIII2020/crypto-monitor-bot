@@ -53,8 +53,8 @@ class VolatilityDetector:
                     logger.debug(f"Alert already sent for {symbol}, skipping")
                     return None
 
-                # Mark as sent (5 minute cooldown)
-                await redis_client.mark_alert_sent(symbol, 'PRICE_SPIKE', ttl_seconds=300)
+                # Mark as sent (10 minute cooldown - 降低误报)
+                await redis_client.mark_alert_sent(symbol, 'PRICE_SPIKE', ttl_seconds=600)
 
                 return {
                     'symbol': symbol,

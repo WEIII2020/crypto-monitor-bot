@@ -26,7 +26,15 @@ class PostgresClient:
         elif db_url.startswith('sqlite://'):
             db_url = db_url.replace('sqlite://', 'sqlite+aiosqlite://')
 
-        self.engine = create_async_engine(db_url, echo=False)
+        # Configure connection pool for high concurrency
+        self.engine = create_async_engine(
+            db_url,
+            echo=False,
+            pool_size=20,           # Number of persistent connections
+            max_overflow=10,        # Additional connections when pool is full
+            pool_pre_ping=True,     # Verify connections before using
+            pool_recycle=3600,      # Recycle connections after 1 hour
+        )
         self.async_session = sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
@@ -165,3 +173,7 @@ class PostgresClient:
 
 # Global client instance (initialized when config is available)
 postgres_client = None
+
+# Initialize client if config is available
+if config:
+    postgres_client = PostgresClient()

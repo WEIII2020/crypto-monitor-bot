@@ -1,0 +1,57 @@
+# Crypto Monitor Bot Configuration
+
+# Symbol Selection
+symbols:
+  max_count: 50                    # Maximum number of symbols to monitor
+  min_volume_usd: 5000000         # $5M minimum daily volume
+  max_volume_usd: 50000000        # $50M maximum
+  min_price: 0.01                 # Minimum price
+  max_price: 10.0                 # Maximum price
+
+# Whale Detection Thresholds
+whale_detection:
+  volume_spike_threshold: 5.0     # 5x average volume = spike
+  volume_low_threshold: 2.0       # 2x average volume = low
+  sideways_threshold: 3.0         # ±3% = sideways
+  significant_rise: 10.0          # 10% rise = significant
+  moderate_rise: 8.0              # 8% rise = moderate
+  significant_drop: 10.0          # 10% drop = significant
+
+# Volatility Detection
+volatility:
+  warning_threshold: 10.0         # 10% change = warning
+  critical_threshold: 20.0        # 20% change = critical
+
+# Alert Settings
+alerts:
+  price_spike_cooldown: 300       # 5 minutes cooldown
+  whale_activity_cooldown: 600    # 10 minutes cooldown
+  enable_priority: false          # TODO: Implement priority system
+
+# Performance
+performance:
+  stats_interval: 300             # Report stats every 5 minutes
+  max_concurrent_writes: 50       # Max concurrent DB writes
+
+# Database
+database:
+  pool_size: 20                   # Connection pool size
+  max_overflow: 10                # Extra connections when pool full
+  pool_recycle: 3600              # Recycle connections after 1 hour
+
+# Monitoring
+monitoring:
+  check_interval: 30              # Check for alerts every 30 seconds
+  data_retention_days: 180        # Keep data for 6 months
+
+# Pump & Dump Strategy (妖币策略)
+# ⚠️ WARNING: This is an ACTIVE TRADING strategy, not passive monitoring
+# Read PUMP_DUMP_QUICK_START.md before enabling
+pump_dump_strategy:
+  enabled: false                  # Set to true to enable (default: false)
+  pump_threshold: 20.0            # Pump detection: 20%+ gain in 4h
+  stop_loss_pct: 3.0             # Stop loss: +3%
+  take_profit_1: 5.0             # Target 1: -5%
+  take_profit_2: 10.0            # Target 2: -10%
+  max_holding_hours: 2           # Max holding time: 2 hours
+  min_manipulation_score: 60     # Minimum manipulation score (60-100)
