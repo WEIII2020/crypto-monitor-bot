@@ -39,6 +39,10 @@ class CryptoMonitorBotPhase2:
         self.signal_generator = TradingSignalGenerator()
         self.notifier = TelegramNotifier()
 
+        # 多交易所 OI 聚合器（免费方案）
+        from src.data_sources.multi_exchange_oi import MultiExchangeOIAggregator
+        self.multi_exchange_oi = MultiExchangeOIAggregator()
+
         # 监控配置
         self.test_mode = False  # False = 200币种，True = 5币种测试
         self.symbols = []
@@ -263,9 +267,31 @@ class CryptoMonitorBotPhase2:
         }
 
     async def _get_market_data(self, symbol: str) -> Dict:
-        """获取市场数据（OI、资金费率等）- 带速率限制"""
+        """获取市场数据（OI、资金费率等）- 优先使用多交易所聚合"""
         import aiohttp
 
+        # 方案 A：使用多交易所聚合 OI（免费但准确）
+        try:
+            aggregated_oi = await self.multi_exchange_oi.get_aggregated_oi(symbol)
+            if aggregated_oi:
+                # 获取 24h 成交量和波动率（从 Binance）
+                binance_symbol = symbol.replace('/', '')
+                volume_data = await self._get_binance_volume_data(binance_symbol)
+
+                return {
+                    'binance_oi': aggregated_oi['binance_oi'],
+                    'total_oi': aggregated_oi['total_oi'],
+                    'binance_ratio': aggregated_oi['binance_ratio'],  # ✅ 真实占比
+                    'volume_24h': volume_data.get('volume', 0),
+                    'volatility_24h': volume_data.get('volatility', 0),
+                    'funding_rate': volume_data.get('funding_rate', 0),
+                    'data_quality': 'VERIFIED',  # ✅ 跨所验证
+                    'exchanges': aggregated_oi['exchanges']
+                }
+        except Exception as e:
+            logger.debug(f"Multi-exchange OI failed for {symbol}, fallback to Binance only: {e}")
+
+        # 方案 B：Fallback 到单 Binance（原有逻辑）
         binance_symbol = symbol.replace('/', '')
 
         # 使用信号量限制并发
@@ -317,9 +343,11 @@ class CryptoMonitorBotPhase2:
                     return {
                         'binance_oi': binance_oi,
                         'total_oi': total_oi,
+                        'binance_ratio': 0.50,  # 估算值
                         'volume_24h': volume_24h,
                         'volatility_24h': price_change_pct,
                         'funding_rate': funding_rate,
+                        'data_quality': 'ESTIMATED'  # ⚠️ 估算值
                     }
 
             except Exception as e:
@@ -331,7 +359,43 @@ class CryptoMonitorBotPhase2:
                     'volume_24h': 0,
                     'volatility_24h': 0,
                     'funding_rate': 0,
+                    'data_quality': 'FAILED'
                 }
+
+    async def _get_binance_volume_data(self, binance_symbol: str) -> Dict:
+        """获取 Binance 24h 成交量和波动率数据"""
+        import aiohttp
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # 获取 24h ticker
+                url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
+                async with session.get(url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                    if resp.status != 200:
+                        return {}
+                    data = await resp.json()
+
+                    volume = float(data.get('quoteVolume', 0))
+                    volatility = abs(float(data.get('priceChangePercent', 0))) / 100
+
+                # 获取资金费率
+                funding_url = "https://fapi.binance.com/fapi/v1/premiumIndex"
+                async with session.get(funding_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                    if resp.status != 200:
+                        funding_rate = 0
+                    else:
+                        funding_data = await resp.json()
+                        funding_rate = float(funding_data.get('lastFundingRate', 0))
+
+                return {
+                    'volume': volume,
+                    'volatility': volatility,
+                    'funding_rate': funding_rate
+                }
+
+        except Exception as e:
+            logger.debug(f"Error fetching Binance volume data: {e}")
+            return {}
 
     async def _get_cached_price(self, symbol: str, timestamp: datetime) -> float:
         """从缓存获取历史价格"""
