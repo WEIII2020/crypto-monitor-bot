@@ -322,16 +322,16 @@ class CryptoMonitorBotPhase2:
                         'funding_rate': funding_rate,
                     }
 
-        except Exception as e:
-            logger.warning(f"Error fetching market data for {symbol}: {e}, using fallback")
-            # 返回安全的默认值（不会触发信号）
-            return {
-                'binance_oi': 0,
-                'total_oi': 0,
-                'volume_24h': 0,
-                'volatility_24h': 0,
-                'funding_rate': 0,
-            }
+            except Exception as e:
+                logger.warning(f"Error fetching market data for {symbol}: {e}, using fallback")
+                # 返回安全的默认值（不会触发信号）
+                return {
+                    'binance_oi': 0,
+                    'total_oi': 0,
+                    'volume_24h': 0,
+                    'volatility_24h': 0,
+                    'funding_rate': 0,
+                }
 
     async def _get_cached_price(self, symbol: str, timestamp: datetime) -> float:
         """从缓存获取历史价格"""
@@ -452,9 +452,9 @@ class CryptoMonitorBotPhase2:
                         # 转换为 USD
                         return oi_contracts * current_price
 
-        except Exception as e:
-            logger.debug(f"Error fetching OI for {symbol}: {e}")
-            return None
+            except Exception as e:
+                logger.debug(f"Error fetching OI for {symbol}: {e}")
+                return None
 
     async def _handle_signal(self, signal):
         """处理信号"""
