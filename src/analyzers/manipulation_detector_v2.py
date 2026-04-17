@@ -190,11 +190,13 @@ class ManipulationDetectorV2:
         """
         # 条件1: 操纵评分
         if manipulation_score.score < 50:
+            logger.debug(f"V4A {symbol}: 操纵评分不足 ({manipulation_score.score} < 50)")
             return None
 
         # 条件2: 跌破支撑
         kline_1h = realtime_data.get('kline_1h')
         if not kline_1h:
+            logger.debug(f"V4A {symbol}: 缺少 1H K线数据")
             return None
 
         close_price = kline_1h['close']

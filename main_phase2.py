@@ -104,6 +104,14 @@ class CryptoMonitorBotPhase2:
 
             logger.info("✅ Phase 2 system is running! Press Ctrl+C to stop.")
 
+            # 冷启动提示
+            logger.info("⏳ 冷启动期说明：")
+            logger.info("   • V4A 策略：立即可用（需要实时数据）")
+            logger.info("   • V8 策略：30 分钟后可用（需要 30min OI 历史）")
+            logger.info("   • LONG 策略：1 小时后可用（需要 1h OI 历史）")
+            logger.info("   • V7 策略：4 小时后可用（需要 4h 价格和 OI 历史）")
+            logger.info("   📊 系统正在积累历史数据，请耐心等待...")
+
             await asyncio.gather(*self.tasks, return_exceptions=True)
 
         except Exception as e:
@@ -482,6 +490,41 @@ class CryptoMonitorBotPhase2:
                     f"{collector_stats['trades_per_second']} trades/s, "
                     f"{collector_stats['avg_latency_ms']}ms latency"
                 )
+
+                # 策略状态报告（每 5 分钟）
+                from datetime import datetime
+                now = datetime.now()
+                if int(now.timestamp()) % 300 < 60:  # 每 5 分钟
+                    # 统计有历史数据的币种数
+                    price_history_count = len(self.price_history)
+                    oi_history_count = len(self.oi_history)
+
+                    logger.info(
+                        f"📈 历史数据状态: "
+                        f"价格历史={price_history_count}币种, "
+                        f"OI历史={oi_history_count}币种"
+                    )
+
+                    # 检查策略可用性
+                    v4a_ready = True  # V4A 只需实时数据
+                    v8_ready = any(
+                        len(history) >= 2 for history in self.oi_history.values()
+                    )  # 至少 2 个 OI 数据点（30min）
+                    long_ready = any(
+                        len(history) >= 2 for history in self.oi_history.values()
+                    )  # 至少 2 个 OI 数据点（1h）
+                    v7_ready = (
+                        any(len(history) >= 5 for history in self.price_history.values()) and
+                        any(len(history) >= 5 for history in self.oi_history.values())
+                    )  # 至少 5 个数据点（4h）
+
+                    logger.info(
+                        f"🎯 策略状态: "
+                        f"V4A={'✅' if v4a_ready else '⏳'}, "
+                        f"V8={'✅' if v8_ready else '⏳'}, "
+                        f"LONG={'✅' if long_ready else '⏳'}, "
+                        f"V7={'✅' if v7_ready else '⏳'}"
+                    )
 
         except asyncio.CancelledError:
             logger.info("Stats monitor task cancelled")

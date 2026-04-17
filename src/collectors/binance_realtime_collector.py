@@ -36,11 +36,12 @@ class BinanceRealtimeCollector(BaseCollector):
         # 为每个币种维护滑动窗口
         self.windows: Dict[str, SlidingWindow] = {}
 
-        # 支持多窗口（1分钟、5分钟、15分钟）
+        # 支持多窗口（1分钟、5分钟、15分钟、1小时）
         self.window_configs = {
             '1m': 60,
             '5m': 300,
-            '15m': 900
+            '15m': 900,
+            '1h': 3600
         }
 
         # 性能统计
