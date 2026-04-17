@@ -1,250 +1,194 @@
-# 📝 更新日志
+# 更新日志 (Changelog)
 
-所有重要变更都会记录在这个文件中。
+## [v2.0-unified-200] - 2026-04-17
 
-格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
+### 🎉 重大更新
 
----
+#### 监控能力提升 4倍
+- ✅ **监控币种**: 从 50 个扩大到 **200 个**
+- ✅ **交易量范围**: $1M - $500M（之前 $5M - $50M）
+- ✅ **包含主流币**: 现在可以监控更大市值的币种
 
-## [2.0.0] - 2026-04-14
+#### 核心优化
+- ✅ **OI监控优化**: 阈值从 50%/5% 提升到 60%/3%（更严格，减少误报）
+- ✅ **信号融合优化**: 观察门槛 60→65，买入门槛 80→85（更谨慎）
+- ✅ **波动监控优化**: 告警冷却从 5分钟延长到 10分钟（减少误报）
+- ✅ **Redis增强**: 新增通用 get/set 方法
 
-### 🎉 重大更新：妖币策略系统
+#### Lana 交易引擎集成
+- ✅ **完整保留** `hermes_integration/` 模块
+  - `lana_trading_engine.py` - 交易引擎核心
+  - `monitor_data_reader.py` - 数据读取器
+  - `telegram_commands.py` - Telegram 命令集成
 
-这是一个**主动交易策略**升级，基于220+币种实证研究。
+#### 开发者体验
+- ✅ **完整测试套件**: 7 个测试文件覆盖核心功能
+- ✅ **环境变量模板**: 新增 `.env.example`
+- ✅ **自动化部署**: `deploy_unified_v2.sh` 一键部署脚本
+- ✅ **详细文档**: 
+  - `CODE_COMPARISON_SUMMARY.md` - 代码对比总结
+  - `INTEGRATION_PLAN.md` - 集成计划
+  - `CHANGELOG.md` - 更新日志
 
-#### 新增 (Added)
+### 📊 版本对比
 
-**核心功能:**
-- ✨ **ManipulationCoinDetector** - 妖币识别器
-  - 历史操纵频率分析
-  - 时间衰减加权评分
-  - 动态妖币池维护
-  
-- ✨ **PumpDumpDetector** - 暴涨回撤检测器
-  - 实时检测20%+暴涨
-  - 第一根阴线识别（弃盘点）
-  - 早空信号触发
-  - 智能止盈止损
+| 特性 | 服务器版 (v1.0) | 统一版 (v2.0) |
+|------|----------------|---------------|
+| 监控币种 | 50 | **200** ⬆️ 4x |
+| OI 阈值 | 50%/5% | **60%/3%** 更严格 |
+| 信号阈值 | 60/80 | **65/85** 更谨慎 |
+| 告警冷却 | 5分钟 | **10分钟** 减少误报 |
+| Lana集成 | ❌ | **✅** |
+| 测试覆盖 | 基础 | **完整** |
+| 部署自动化 | 手动 | **一键部署** |
 
-**告警类型:**
-- 🟠 暴涨检测 (PUMP_DETECTED)
-- 🚨 早空信号 (EARLY_SHORT_SIGNAL)
-- 🟢 止盈信号 (TAKE_PROFIT)
-- 🔴 止损信号 (STOP_LOSS)
+### 🔧 配置变更
 
-**文档:**
-- 📖 [PUMP_DUMP_STRATEGY.md](docs/archive/PUMP_DUMP_STRATEGY.md) - 完整策略说明
-- 📖 [PUMP_DUMP_QUICK_START.md](PUMP_DUMP_QUICK_START.md) - 快速开始
-- 📖 [main_with_pump_dump.py](main_with_pump_dump.py) - 集成示例
+#### config.yaml
+```yaml
+# 之前
+symbols:
+  max_count: 50
+  min_volume_usd: 5000000
+  max_volume_usd: 50000000
 
-#### 变更 (Changed)
-
-- ⚙️ `config.yaml` 新增 `pump_dump_strategy` 配置项
-- 📊 默认禁用妖币策略（需手动启用）
-
-#### 性能 (Performance)
-
-- 📈 月收益潜力: +30-50%（实证数据）
-- 🎯 胜率: 80-90%（1447个操盘周期验证）
-- ⚡ 触发频率: 2-3个信号/天
-- ⏱️ 平均持仓: 1小时
-- 💰 单笔期望: +4.3%
-
-#### ⚠️ 风险提示
-
-- 这是**主动交易策略**，有亏损风险
-- 单笔最高风险: -3%
-- 需要严格纪律执行
-- 不适合新手
-- 建议先纸面交易1-2周
-
----
-
-## [1.5.0] - 2026-04-14
-
-### 🔥 重大更新：多时间框架分析 + 庄家检测
-
-这次升级显著提升了检测准确性和深度。
-
-#### 新增 (Added)
-
-**核心功能:**
-- ✨ **WhaleDetectorV2** - 多时间框架巨鲸检测
-  - 5分钟 + 30分钟 + 4小时分析
-  - 连续信号确认机制（减少误报）
-  - 详细的多时间框架报告
-  
-- ✨ **MarketMakerDetector** - 庄家操控检测
-  - 对敲识别（wash trading）
-  - 长期吸筹确认（accumulation）
-  - 拉盘出货检测（distribution）
-  - 价量背离分析（divergence）
-  - 综合操控评分（0-100分）
-
-**文档:**
-- 📖 [RAVE_ANALYSIS_AND_OPTIMIZATION.md](docs/strategies/rave-analysis.md) - RAVE控盘分析
-- 📖 [IMPLEMENTATION_GUIDE.md](docs/archive/IMPLEMENTATION_GUIDE.md) - 实施指南
-- 📖 [UPGRADE_SUCCESS.md](docs/archive/UPGRADE_SUCCESS.md) - 升级说明
-
-#### 改进 (Improved)
-
-- 📊 误报率降低: **-50%**
-- 🎯 检测维度: 1个 → **3个**
-- 📋 告警类型: 5种 → **10种**
-- ⏱️ 确认机制: 无 → **连续信号确认**
-
-#### 性能 (Performance)
-
-- CPU: +3% (微小增加)
-- 内存: +50MB (可接受)
-- 网络: 无变化
-
-#### 向后兼容 (Backward Compatible)
-
-- ✅ 完全兼容现有配置
-- ✅ 不影响原有功能
-- ✅ 可选启用新功能
-
----
-
-## [1.0.0] - 2026-04-01
-
-### 🎉 首次发布：基础监控系统
-
-MVP版本，提供核心监控功能。
-
-#### 新增 (Added)
-
-**核心功能:**
-- ✨ **VolatilityDetector** - 波动率检测
-  - 10%+波动告警
-  - 20%+极端波动
-  
-- ✨ **WhaleDetector** - 基础巨鲸检测
-  - 吸筹识别
-  - 出货识别
-  - 假突破警告
-  - 恐慌抛售
-  - 异常放量
-
-**基础设施:**
-- 🔌 Binance WebSocket集成
-- 💾 Redis缓存系统
-- 🗄️ PostgreSQL历史数据
-- 📱 Telegram通知系统
-- 🎯 动态币种选择
-- 📊 性能监控
-
-**文档:**
-- 📖 README.md
-- 📖 QUICKSTART.md
-
-#### 功能特性
-
-- 监控币种: 50个（动态选择）
-- 数据保留: 180天
-- 检查间隔: 30秒
-- 告警冷却: 5-10分钟
-
-#### 性能指标
-
-- CPU: 10-15%
-- 内存: 200MB
-- 网络: 100-500 KB/s
-- 消息处理: ~1000条/秒
-
----
-
-## 版本对比
-
-| 版本 | 检测器数量 | 告警类型 | 误报率 | 月成本 | 主要特性 |
-|------|----------|---------|--------|--------|---------|
-| v2.0.0 | 5个 | 14种 | 低(-80%) | $0 | 主动交易策略 |
-| v1.5.0 | 3个 | 10种 | 中(-50%) | $0 | 多时间框架+庄家检测 |
-| v1.0.0 | 2个 | 5种 | 高 | $0 | 基础监控 |
-
----
-
-## 升级路径
-
-### 从 v1.0.0 升级到 v1.5.0
-
-```bash
-# 1. 拉取最新代码
-git pull origin main
-
-# 2. 无需修改配置
-# 新功能自动启用，向后兼容
-
-# 3. 重启服务
-python main.py
+# 现在
+symbols:
+  max_count: 200                # +150 币种
+  min_volume_usd: 1000000       # 降低门槛
+  max_volume_usd: 500000000     # 扩大范围
 ```
 
-**预期变化:**
-- ✅ 告警更准确（误报减少50%）
-- ✅ 告警更详细（多时间框架信息）
-- ✅ 新增庄家操控告警
+#### main.py
+```python
+# 之前
+self.symbols = await self.symbol_selector.get_monitoring_list(max_symbols=50)
 
-### 从 v1.5.0 升级到 v2.0.0
-
-```bash
-# 1. 拉取最新代码
-git pull origin main
-
-# 2. 查看新配置（可选）
-cat config.yaml | grep "pump_dump_strategy"
-
-# 3. 选择运行模式
-python main.py                   # 被动监控（推荐）
-# 或
-python main_with_pump_dump.py    # 主动策略（需启用）
+# 现在
+self.symbols = await self.symbol_selector.get_monitoring_list(max_symbols=200)
 ```
 
-**预期变化:**
-- ✅ 新增妖币识别
-- ✅ 新增交易信号（如果启用）
-- ⚠️ 主动策略有风险（默认禁用）
+### 📁 新增文件
+
+```
+crypto-monitor-bot-v2.0/
+├── .env.example                      # ✨ 新增
+├── CODE_COMPARISON_SUMMARY.md        # ✨ 新增
+├── INTEGRATION_PLAN.md               # ✨ 新增
+├── CHANGELOG.md                      # ✨ 新增
+├── deploy_unified_v2.sh             # ✨ 新增
+└── hermes_integration/              # ✨ 完整保留
+    ├── lana_trading_engine.py
+    ├── monitor_data_reader.py
+    └── telegram_commands.py
+```
+
+### 🚀 升级指南
+
+#### 从 v1.0 (50币种) 升级到 v2.0 (200币种)
+
+**方法 1: 使用自动化脚本（推荐）**
+```bash
+# 1. 在本地执行
+./deploy_unified_v2.sh
+
+# 脚本会自动:
+# - 打包代码
+# - 备份服务器旧版本
+# - 上传并部署新版本
+# - 验证部署结果
+```
+
+**方法 2: 手动部署**
+```bash
+# 1. 打包本地代码
+tar -czf crypto-bot-v2.0.tar.gz \
+  --exclude=venv \
+  --exclude=__pycache__ \
+  --exclude=.git \
+  --exclude=hermes_server_code \
+  .
+
+# 2. 上传到服务器
+scp crypto-bot-v2.0.tar.gz root@119.28.43.237:/root/
+
+# 3. SSH登录服务器
+ssh root@119.28.43.237
+
+# 4. 备份旧版本
+cd /root
+tar -czf backups/crypto-bot-v1.0-backup.tar.gz crypto-monitor-bot
+
+# 5. 部署新版本
+rm -rf crypto-monitor-bot
+mkdir crypto-monitor-bot
+tar -xzf crypto-bot-v2.0.tar.gz -C crypto-monitor-bot/
+
+# 6. 安装依赖
+cd crypto-monitor-bot
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 7. 配置环境变量
+cp .env.example .env
+vim .env  # 填入你的配置
+
+# 8. 启动服务
+./start.sh
+```
+
+### ⚠️ 重要提示
+
+#### 性能考虑
+- **200 币种** 比 50 币种消耗更多资源
+- 建议服务器配置: 
+  - CPU: 2核+
+  - RAM: 4GB+
+  - 网络: 稳定连接
+
+#### 循序渐进部署
+如果担心性能，可以先测试中等规模:
+```yaml
+# config.yaml
+symbols:
+  max_count: 100  # 先测试100个币种
+```
+
+待稳定后再扩展到 200。
+
+#### 数据库性能
+- PostgreSQL: 确保有足够磁盘空间（200币种产生更多数据）
+- Redis: 建议至少 512MB 内存
+
+### 🐛 已知问题
+
+暂无
+
+### 📝 下一版本计划 (v2.1)
+
+- [ ] 增加 WebSocket 断线重连优化
+- [ ] Telegram Bot 交互式配置界面
+- [ ] 实时性能监控仪表盘
+- [ ] 币种热度自动调整（动态选择最活跃的200个）
+- [ ] 支持多个 Telegram 群组通知
+
+### 🤝 贡献者
+
+- 代码整合与优化: Claude (Anthropic)
+- 原始开发: WEIII2020
 
 ---
 
-## 路线图
+## [v1.0-lana-optimized] - 2026-04-15
 
-### ✅ 已完成
-
-- [x] 基础波动率监控 (v1.0.0)
-- [x] 多时间框架分析 (v1.5.0)
-- [x] 庄家操控检测 (v1.5.0)
-- [x] 妖币暴涨回撤策略 (v2.0.0)
-- [x] 完整文档系统 (v2.0.0)
-
-### 🚧 进行中 (v2.1.0 - 预计2026-05)
-
-- [ ] Web控制面板
-- [ ] 移动端应用
-- [ ] 性能优化（支持100+币种）
-- [ ] 告警优先级系统
-
-### 📋 计划中 (v3.0.0 - 预计2026-Q3)
-
-- [ ] 多交易所支持（OKX, Bybit, Gate.io）
-- [ ] 链上数据集成（筹码分布）
-- [ ] 合约数据（OI, 资金费率, 爆仓）
-- [ ] 自动交易执行（可选）
-- [ ] 机器学习优化
+### 初始发布
+- ✅ 监控 50 个币种
+- ✅ 9 个分析器
+- ✅ PostgreSQL + Redis 存储
+- ✅ Telegram 实时通知
+- ✅ 性能监控系统
 
 ---
 
-## 贡献指南
-
-想要贡献？查看 [CONTRIBUTING.md](CONTRIBUTING.md)
-
----
-
-## 许可证
-
-MIT License - 详见 [LICENSE](LICENSE)
-
----
-
-**维护者:** 项目团队  
-**最后更新:** 2026-04-14
+*更多历史版本请参考 Git 提交记录*

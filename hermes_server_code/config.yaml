@@ -1,12 +1,12 @@
 # Crypto Monitor Bot Configuration
 
-# Symbol Selection (v2.0 - 200 Symbols)
+# Symbol Selection
 symbols:
-  max_count: 200                   # Maximum number of symbols to monitor (upgraded from 50)
-  min_volume_usd: 1000000          # $1M minimum daily volume (expanded range)
-  max_volume_usd: 500000000        # $500M maximum (include mainstream coins)
-  min_price: 0.01                  # Minimum price
-  max_price: 10.0                  # Maximum price
+  max_count: 50                    # Maximum number of symbols to monitor
+  min_volume_usd: 5000000         # $5M minimum daily volume
+  max_volume_usd: 50000000        # $50M maximum
+  min_price: 0.01                 # Minimum price
+  max_price: 10.0                 # Maximum price
 
 # Whale Detection Thresholds
 whale_detection:

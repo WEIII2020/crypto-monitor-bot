@@ -1,0 +1,84 @@
+====================================================
+🚀 快速部署命令清单 - v2.0-unified-200
+====================================================
+
+📦 步骤 1: 上传文件（在本地执行）
+----------------------------------------------------
+scp /tmp/crypto-bot-v2.0.tar.gz root@119.28.43.237:/root/
+
+⏳ 输入密码，等待上传完成...
+
+====================================================
+
+🖥️ 步骤 2: SSH登录服务器
+----------------------------------------------------
+ssh root@119.28.43.237
+
+⏳ 输入密码，登录成功后继续...
+
+====================================================
+
+📦 步骤 3: 部署（复制粘贴以下所有命令）
+----------------------------------------------------
+# 备份 + 停止旧服务
+if [ -d "/root/crypto-monitor-bot" ]; then
+    mkdir -p /root/backups
+    tar -czf backups/crypto-bot-backup-$(date +%Y%m%d-%H%M%S).tar.gz crypto-monitor-bot
+    [ -f "/root/crypto-monitor-bot/.env" ] && cp /root/crypto-monitor-bot/.env /tmp/.env.backup
+    cd /root/crypto-monitor-bot && pkill -f "python.*main.py" 2>/dev/null || true
+fi
+
+# 解压新版本
+cd /root
+rm -rf crypto-monitor-bot
+mkdir -p crypto-monitor-bot
+tar -xzf crypto-bot-v2.0.tar.gz -C crypto-monitor-bot
+
+# 恢复配置
+cd crypto-monitor-bot
+[ -f "/tmp/.env.backup" ] && mv /tmp/.env.backup .env || cp .env.example .env
+chmod +x *.sh 2>/dev/null || true
+
+# 安装依赖
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip -q
+pip install -r requirements.txt -q
+
+echo "✅ 部署完成！"
+
+====================================================
+
+⚙️ 步骤 4: 配置（必须）
+----------------------------------------------------
+vim .env
+
+# 必填项:
+# POSTGRES_HOST, POSTGRES_USER, POSTGRES_PASSWORD
+# REDIS_HOST
+# TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID
+
+保存退出: :wq
+
+====================================================
+
+🚀 步骤 5: 启动
+----------------------------------------------------
+./start.sh
+
+====================================================
+
+✅ 步骤 6: 验证
+----------------------------------------------------
+# 查看日志
+tail -f logs/crypto_monitor_*.log
+
+# 应该看到:
+# ✅ Selected 200 symbols
+# ✅ Bot is running!
+
+按 Ctrl+C 退出日志查看
+
+====================================================
+🎉 完成！现在监控 200 个币种！
+====================================================
