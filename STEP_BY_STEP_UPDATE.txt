@@ -1,0 +1,152 @@
+================================================================================
+🚀 分步执行 - v2.0 升级到 200 币种
+================================================================================
+
+复制下面每一个代码块到腾讯云终端执行：
+
+================================================================================
+步骤 1: 进入目录并备份
+================================================================================
+
+cd /root/crypto-monitor-bot
+cp .env /tmp/.env.backup 2>/dev/null || echo "No .env to backup"
+cp config.yaml config.yaml.backup
+cp main.py main.py.backup
+echo "✅ 备份完成"
+
+按回车执行 ↑
+
+================================================================================
+步骤 2: 更新 config.yaml（复制整段执行）
+================================================================================
+
+cat > config.yaml << 'CONFIGEND'
+# Crypto Monitor Bot Configuration
+
+# Symbol Selection (v2.0 - 200 Symbols)
+symbols:
+  max_count: 200
+  min_volume_usd: 1000000
+  max_volume_usd: 500000000
+  min_price: 0.01
+  max_price: 10.0
+
+# Whale Detection Thresholds
+whale_detection:
+  volume_spike_threshold: 5.0
+  volume_low_threshold: 2.0
+  sideways_threshold: 3.0
+  significant_rise: 10.0
+  moderate_rise: 8.0
+  significant_drop: 10.0
+
+# Volatility Detection
+volatility:
+  warning_threshold: 10.0
+  critical_threshold: 20.0
+
+# Alert Settings
+alerts:
+  price_spike_cooldown: 600
+  whale_activity_cooldown: 600
+  enable_priority: false
+
+# Performance
+performance:
+  stats_interval: 300
+  max_concurrent_writes: 50
+
+# Database
+database:
+  pool_size: 20
+  max_overflow: 10
+  pool_recycle: 3600
+
+# Monitoring
+monitoring:
+  check_interval: 30
+  data_retention_days: 180
+
+# Pump & Dump Strategy
+pump_dump_strategy:
+  enabled: false
+  pump_threshold: 20.0
+  stop_loss_pct: 3.0
+  take_profit_1: 5.0
+  take_profit_2: 10.0
+  max_holding_hours: 2
+  min_manipulation_score: 60
+CONFIGEND
+
+echo "✅ config.yaml 更新完成"
+cat config.yaml | head -10
+
+按回车执行 ↑
+
+================================================================================
+步骤 3: 更新 main.py
+================================================================================
+
+sed -i 's/max_symbols=50/max_symbols=200/g' main.py
+echo "✅ main.py 更新完成"
+grep "max_symbols" main.py
+
+按回车执行 ↑
+
+================================================================================
+步骤 4: 更新 symbol_selector.py
+================================================================================
+
+sed -i 's/min_volume_usd = 5_000_000/min_volume_usd = 1_000_000/g' src/utils/symbol_selector.py
+sed -i 's/max_volume_usd = 50_000_000/max_volume_usd = 500_000_000/g' src/utils/symbol_selector.py
+sed -i 's/max_symbols: int = 50/max_symbols: int = 200/g' src/utils/symbol_selector.py
+echo "✅ symbol_selector.py 更新完成"
+grep "min_volume_usd\|max_volume_usd\|max_symbols: int" src/utils/symbol_selector.py
+
+按回车执行 ↑
+
+================================================================================
+步骤 5: 停止旧服务
+================================================================================
+
+pkill -f "python.*main.py" 2>/dev/null && echo "✅ 旧服务已停止" || echo "⚠️ 没有运行的服务"
+sleep 2
+
+按回车执行 ↑
+
+================================================================================
+步骤 6: 启动新服务
+================================================================================
+
+./start.sh
+
+按回车执行 ↑
+
+================================================================================
+步骤 7: 查看日志验证（重要！）
+================================================================================
+
+sleep 5
+tail -30 logs/crypto_monitor_*.log
+
+按回车执行 ↑
+
+你应该看到：
+✅ Selected 200 symbols
+✅ Bot is running!
+
+如果看到这两行，说明升级成功！🎉
+
+按 Ctrl+C 可以退出日志查看
+
+================================================================================
+🎯 完成！
+================================================================================
+
+检查运行状态：
+ps aux | grep python | grep main.py
+
+实时日志：
+tail -f logs/crypto_monitor_*.log
+
+================================================================================

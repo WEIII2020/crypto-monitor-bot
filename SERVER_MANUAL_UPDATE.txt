@@ -1,0 +1,133 @@
+================================================================================
+🚀 服务器手动更新指南（无需 Git）
+================================================================================
+
+在腾讯云 Web 终端执行以下命令：
+
+────────────────────────────────────────────────────────────────────────────
+
+# 步骤 1: 备份并更新配置文件
+────────────────────────────────────────────────────────────────────────────
+cd /root/crypto-monitor-bot
+
+# 备份当前配置
+cp .env /tmp/.env.backup 2>/dev/null || echo "No .env to backup"
+
+# 更新 config.yaml（200币种）
+cat > config.yaml << 'CONFIGEND'
+# Crypto Monitor Bot Configuration
+
+# Symbol Selection (v2.0 - 200 Symbols)
+symbols:
+  max_count: 200                   # Maximum number of symbols to monitor (upgraded from 50)
+  min_volume_usd: 1000000          # $1M minimum daily volume (expanded range)
+  max_volume_usd: 500000000        # $500M maximum (include mainstream coins)
+  min_price: 0.01                  # Minimum price
+  max_price: 10.0                  # Maximum price
+
+# Whale Detection Thresholds
+whale_detection:
+  volume_spike_threshold: 5.0     # 5x average volume = spike
+  volume_low_threshold: 2.0       # 2x average volume = low
+  sideways_threshold: 3.0         # ±3% = sideways
+  significant_rise: 10.0          # 10% rise = significant
+  moderate_rise: 8.0              # 8% rise = moderate
+  significant_drop: 10.0          # 10% drop = significant
+
+# Volatility Detection
+volatility:
+  warning_threshold: 10.0         # 10% change = warning
+  critical_threshold: 20.0        # 20% change = critical
+
+# Alert Settings
+alerts:
+  price_spike_cooldown: 600       # 10 minutes cooldown (upgraded from 5)
+  whale_activity_cooldown: 600    # 10 minutes cooldown
+  enable_priority: false          # TODO: Implement priority system
+
+# Performance
+performance:
+  stats_interval: 300             # Report stats every 5 minutes
+  max_concurrent_writes: 50       # Max concurrent DB writes
+
+# Database
+database:
+  pool_size: 20                   # Connection pool size
+  max_overflow: 10                # Extra connections when pool full
+  pool_recycle: 3600              # Recycle connections after 1 hour
+
+# Monitoring
+monitoring:
+  check_interval: 30              # Check for alerts every 30 seconds
+  data_retention_days: 180        # Keep data for 6 months
+
+# Pump & Dump Strategy (妖币策略)
+pump_dump_strategy:
+  enabled: false                  # Set to true to enable (default: false)
+  pump_threshold: 20.0            # Pump detection: 20%+ gain in 4h
+  stop_loss_pct: 3.0             # Stop loss: +3%
+  take_profit_1: 5.0             # Target 1: -5%
+  take_profit_2: 10.0            # Target 2: -10%
+  max_holding_hours: 2           # Max holding time: 2 hours
+  min_manipulation_score: 60     # Minimum manipulation score (60-100)
+CONFIGEND
+
+echo "✅ config.yaml 已更新为 200 币种"
+
+────────────────────────────────────────────────────────────────────────────
+
+# 步骤 2: 更新 main.py（200币种）
+────────────────────────────────────────────────────────────────────────────
+
+# 检查当前配置
+grep "max_symbols" main.py
+
+# 如果显示 max_symbols=50，执行以下命令更新：
+sed -i 's/max_symbols=50/max_symbols=200/g' main.py
+
+# 验证更改
+grep "max_symbols" main.py
+echo "✅ main.py 已更新"
+
+────────────────────────────────────────────────────────────────────────────
+
+# 步骤 3: 更新 symbol_selector.py
+────────────────────────────────────────────────────────────────────────────
+
+# 更新交易量范围
+sed -i 's/min_volume_usd = 5_000_000/min_volume_usd = 1_000_000/g' src/utils/symbol_selector.py
+sed -i 's/max_volume_usd = 50_000_000/max_volume_usd = 500_000_000/g' src/utils/symbol_selector.py
+sed -i 's/max_symbols: int = 50/max_symbols: int = 200/g' src/utils/symbol_selector.py
+
+echo "✅ symbol_selector.py 已更新"
+
+────────────────────────────────────────────────────────────────────────────
+
+# 步骤 4: 重启服务
+────────────────────────────────────────────────────────────────────────────
+
+# 停止旧服务
+pkill -f "python.*main.py" 2>/dev/null || echo "No process to kill"
+
+# 启动新服务
+./start.sh
+
+────────────────────────────────────────────────────────────────────────────
+
+# 步骤 5: 验证
+────────────────────────────────────────────────────────────────────────────
+
+# 查看日志
+tail -f logs/crypto_monitor_*.log
+
+# 应该看到：
+# ✅ Selected 200 symbols
+# ✅ Bot is running!
+
+# 按 Ctrl+C 退出日志查看
+
+────────────────────────────────────────────────────────────────────────────
+
+✅ 完成！现在监控 200 个币种了！
+
+────────────────────────────────────────────────────────────────────────────
