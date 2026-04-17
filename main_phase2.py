@@ -12,7 +12,7 @@ Crypto Monitor Bot - Phase 2
 import asyncio
 import signal
 import sys
-from typing import Set, Dict
+from typing import Set, Dict, Optional
 from datetime import datetime, timedelta
 
 from src.utils.logger import logger
