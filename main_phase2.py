@@ -47,6 +47,10 @@ class CryptoMonitorBotPhase2:
         self.price_history = {}  # {symbol: [(timestamp, price), ...]}
         self.oi_history = {}     # {symbol: [(timestamp, oi), ...]}
 
+        # API 速率限制（防止 418 限流）
+        self.api_semaphore = asyncio.Semaphore(10)  # 最多 10 个并发 API 请求
+        self.api_delay = 0.05  # 每次请求后延迟 50ms
+
         # 性能统计
         self.stats = {
             'total_signals': 0,
@@ -259,50 +263,64 @@ class CryptoMonitorBotPhase2:
         }
 
     async def _get_market_data(self, symbol: str) -> Dict:
-        """获取市场数据（OI、资金费率等）"""
+        """获取市场数据（OI、资金费率等）- 带速率限制"""
         import aiohttp
 
         binance_symbol = symbol.replace('/', '')
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                # 1. 获取当前价格（用于 OI 转换）
-                ticker_url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
-                async with session.get(ticker_url, params={'symbol': binance_symbol}, timeout=5) as resp:
-                    if resp.status != 200:
-                        raise Exception(f"Ticker API error: {resp.status}")
-                    ticker_data = await resp.json()
-                    current_price = float(ticker_data['lastPrice'])
-                    volume_24h = float(ticker_data['quoteVolume'])
-                    price_change_pct = abs(float(ticker_data['priceChangePercent'])) / 100
+        # 使用信号量限制并发
+        async with self.api_semaphore:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    # 1. 获取当前价格（用于 OI 转换）
+                    ticker_url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
+                    async with session.get(ticker_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                        if resp.status == 418:  # 限流
+                            logger.debug(f"Rate limited for {symbol}, using fallback")
+                            raise Exception("Rate limited")
+                        if resp.status != 200:
+                            raise Exception(f"Ticker API error: {resp.status}")
+                        ticker_data = await resp.json()
+                        current_price = float(ticker_data['lastPrice'])
+                        volume_24h = float(ticker_data['quoteVolume'])
+                        price_change_pct = abs(float(ticker_data['priceChangePercent'])) / 100
 
-                # 2. 获取 Binance OI（合约数量）
-                oi_url = "https://fapi.binance.com/fapi/v1/openInterest"
-                async with session.get(oi_url, params={'symbol': binance_symbol}, timeout=5) as resp:
-                    if resp.status != 200:
-                        raise Exception(f"OI API error: {resp.status}")
-                    oi_data = await resp.json()
-                    oi_contracts = float(oi_data['openInterest'])
-                    binance_oi = oi_contracts * current_price  # 转换为 USD
+                    # 延迟（防止限流）
+                    await asyncio.sleep(self.api_delay)
 
-                # 3. 获取资金费率
-                funding_url = "https://fapi.binance.com/fapi/v1/premiumIndex"
-                async with session.get(funding_url, params={'symbol': binance_symbol}, timeout=5) as resp:
-                    if resp.status != 200:
-                        raise Exception(f"Funding API error: {resp.status}")
-                    funding_data = await resp.json()
-                    funding_rate = float(funding_data['lastFundingRate'])
+                    # 2. 获取 Binance OI（合约数量）
+                    oi_url = "https://fapi.binance.com/fapi/v1/openInterest"
+                    async with session.get(oi_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                        if resp.status == 418:
+                            raise Exception("Rate limited")
+                        if resp.status != 200:
+                            raise Exception(f"OI API error: {resp.status}")
+                        oi_data = await resp.json()
+                        oi_contracts = float(oi_data['openInterest'])
+                        binance_oi = oi_contracts * current_price  # 转换为 USD
 
-                # 4. 估算总 OI（Binance 通常占 40-60%，保守估计 50%）
-                total_oi = binance_oi * 2
+                    await asyncio.sleep(self.api_delay)
 
-                return {
-                    'binance_oi': binance_oi,
-                    'total_oi': total_oi,
-                    'volume_24h': volume_24h,
-                    'volatility_24h': price_change_pct,
-                    'funding_rate': funding_rate,
-                }
+                    # 3. 获取资金费率
+                    funding_url = "https://fapi.binance.com/fapi/v1/premiumIndex"
+                    async with session.get(funding_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                        if resp.status == 418:
+                            raise Exception("Rate limited")
+                        if resp.status != 200:
+                            raise Exception(f"Funding API error: {resp.status}")
+                        funding_data = await resp.json()
+                        funding_rate = float(funding_data['lastFundingRate'])
+
+                    # 4. 估算总 OI（Binance 通常占 40-60%，保守估计 50%）
+                    total_oi = binance_oi * 2
+
+                    return {
+                        'binance_oi': binance_oi,
+                        'total_oi': total_oi,
+                        'volume_24h': volume_24h,
+                        'volatility_24h': price_change_pct,
+                        'funding_rate': funding_rate,
+                    }
 
         except Exception as e:
             logger.warning(f"Error fetching market data for {symbol}: {e}, using fallback")
@@ -400,31 +418,39 @@ class CryptoMonitorBotPhase2:
             logger.error(f"OI collection error: {e}")
 
     async def _fetch_binance_oi(self, symbol: str) -> Optional[float]:
-        """从 Binance API 获取当前 OI"""
+        """从 Binance API 获取当前 OI - 带速率限制"""
         import aiohttp
 
         binance_symbol = symbol.replace('/', '')
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                # 获取当前价格
-                ticker_url = "https://fapi.binance.com/fapi/v1/ticker/price"
-                async with session.get(ticker_url, params={'symbol': binance_symbol}, timeout=5) as resp:
-                    if resp.status != 200:
-                        return None
-                    price_data = await resp.json()
-                    current_price = float(price_data['price'])
+        # 使用信号量限制并发
+        async with self.api_semaphore:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    # 获取当前价格
+                    ticker_url = "https://fapi.binance.com/fapi/v1/ticker/price"
+                    async with session.get(ticker_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                        if resp.status == 418:
+                            return None  # 限流，跳过
+                        if resp.status != 200:
+                            return None
+                        price_data = await resp.json()
+                        current_price = float(price_data['price'])
 
-                # 获取 OI（合约数量）
-                oi_url = "https://fapi.binance.com/fapi/v1/openInterest"
-                async with session.get(oi_url, params={'symbol': binance_symbol}, timeout=5) as resp:
-                    if resp.status != 200:
-                        return None
-                    oi_data = await resp.json()
-                    oi_contracts = float(oi_data['openInterest'])
+                    await asyncio.sleep(self.api_delay)
 
-                    # 转换为 USD
-                    return oi_contracts * current_price
+                    # 获取 OI（合约数量）
+                    oi_url = "https://fapi.binance.com/fapi/v1/openInterest"
+                    async with session.get(oi_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                        if resp.status == 418:
+                            return None  # 限流，跳过
+                        if resp.status != 200:
+                            return None
+                        oi_data = await resp.json()
+                        oi_contracts = float(oi_data['openInterest'])
+
+                        # 转换为 USD
+                        return oi_contracts * current_price
 
         except Exception as e:
             logger.debug(f"Error fetching OI for {symbol}: {e}")
