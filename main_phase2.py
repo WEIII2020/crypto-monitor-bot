@@ -91,11 +91,16 @@ class CryptoMonitorBotPhase2:
             # 启动后台任务
             collector_task = asyncio.create_task(self._run_collector())
             signal_task = asyncio.create_task(self._run_signal_generation())
+            oi_task = asyncio.create_task(self._run_oi_collection())
             stats_task = asyncio.create_task(self._run_stats_monitor())
 
             self.tasks.add(collector_task)
             self.tasks.add(signal_task)
+            self.tasks.add(oi_task)
             self.tasks.add(stats_task)
+
+            # 设置价格历史回调
+            self.collector.on_price_update = self._cache_price_history
 
             logger.info("✅ Phase 2 system is running! Press Ctrl+C to stop.")
 
@@ -130,18 +135,26 @@ class CryptoMonitorBotPhase2:
             logger.error(f"Collector error: {e}")
 
     async def _run_signal_generation(self):
-        """信号生成主循环"""
+        """信号生成主循环（并行版）"""
         logger.info("🔍 Starting signal generation...")
 
-        check_interval = 5  # 每 5 秒检查一次（比 Phase 1 更慢，因为要做深度分析）
+        check_interval = 5  # 每 5 秒检查一次
 
         try:
             while self.running:
-                for symbol in self.symbols:
-                    try:
-                        await self._check_trading_signals(symbol)
-                    except Exception as e:
-                        logger.error(f"Error checking {symbol}: {e}")
+                # 并行检查所有币种
+                tasks = [
+                    self._check_trading_signals(symbol)
+                    for symbol in self.symbols
+                ]
+
+                # 使用 gather 并捕获异常
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # 记录错误（不中断）
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        logger.error(f"Error checking {self.symbols[i]}: {result}")
 
                 await asyncio.sleep(check_interval)
 
@@ -164,7 +177,12 @@ class CryptoMonitorBotPhase2:
             # 3. 获取市场数据（OI、资金费率等）
             market_data = await self._get_market_data(symbol)
 
-            # 4. 生成信号
+            # 4. 合并数据（V8/LONG 需要的字段传递给 realtime_data）
+            realtime_data['oi_30m_ago'] = historical_data.get('oi_30m_ago')
+            realtime_data['current_oi'] = historical_data.get('current_oi')
+            realtime_data['oi_change_1h'] = historical_data.get('oi_change_1h')
+
+            # 5. 生成信号
             signals = await self.signal_generator.generate_signals(
                 symbol,
                 realtime_data,
@@ -172,7 +190,7 @@ class CryptoMonitorBotPhase2:
                 market_data
             )
 
-            # 5. 处理信号
+            # 6. 处理信号
             for signal in signals:
                 await self._handle_signal(signal)
 
@@ -194,36 +212,100 @@ class CryptoMonitorBotPhase2:
 
     async def _get_historical_data(self, symbol: str) -> Dict:
         """获取历史数据"""
-        # 从缓存获取 4 小时前的数据
         now = datetime.now()
+
+        # 获取各时间点的历史数据
         four_hours_ago = now - timedelta(hours=4)
+        one_hour_ago = now - timedelta(hours=1)
+        thirty_min_ago = now - timedelta(minutes=30)
 
-        # 简化实现：从 Redis 获取
-        # 实际应该从数据库或 API 获取
+        # 价格历史
         price_4h_ago = await self._get_cached_price(symbol, four_hours_ago)
-        oi_4h_ago = await self._get_cached_oi(symbol, four_hours_ago)
 
+        # OI 历史
+        oi_4h_ago = await self._get_cached_oi(symbol, four_hours_ago)
+        oi_1h_ago = await self._get_cached_oi(symbol, one_hour_ago)
+        oi_30m_ago = await self._get_cached_oi(symbol, thirty_min_ago)
+
+        # 当前数据
         current_metrics = await self.collector.get_realtime_metrics(symbol, '1m')
         current_price = current_metrics['close'] if current_metrics else None
+
+        # 当前 OI（从最新记录）
+        current_oi = None
+        if symbol in self.oi_history and self.oi_history[symbol]:
+            current_oi = self.oi_history[symbol][-1][1]
+
+        # 计算 OI 变化率
+        oi_change_1h = 0
+        if oi_1h_ago and current_oi and oi_1h_ago > 0:
+            oi_change_1h = (current_oi - oi_1h_ago) / oi_1h_ago
 
         return {
             'price_4h_ago': price_4h_ago,
             'oi_4h_ago': oi_4h_ago,
             'current_price': current_price,
-            'current_oi': None  # TODO: 从 API 获取当前 OI
+            'current_oi': current_oi,
+            'oi_30m_ago': oi_30m_ago,
+            'oi_change_1h': oi_change_1h,
         }
 
     async def _get_market_data(self, symbol: str) -> Dict:
         """获取市场数据（OI、资金费率等）"""
-        # TODO: 从 Coinglass 或 Binance API 获取
-        # 当前返回模拟数据
-        return {
-            'binance_oi': 100000000,  # $100M
-            'total_oi': 200000000,    # $200M
-            'volume_24h': 500000000,  # $500M
-            'volatility_24h': 0.15,   # 15%
-            'funding_rate': 0.0001,   # 0.01%
-        }
+        import aiohttp
+
+        binance_symbol = symbol.replace('/', '')
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # 1. 获取当前价格（用于 OI 转换）
+                ticker_url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
+                async with session.get(ticker_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                    if resp.status != 200:
+                        raise Exception(f"Ticker API error: {resp.status}")
+                    ticker_data = await resp.json()
+                    current_price = float(ticker_data['lastPrice'])
+                    volume_24h = float(ticker_data['quoteVolume'])
+                    price_change_pct = abs(float(ticker_data['priceChangePercent'])) / 100
+
+                # 2. 获取 Binance OI（合约数量）
+                oi_url = "https://fapi.binance.com/fapi/v1/openInterest"
+                async with session.get(oi_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                    if resp.status != 200:
+                        raise Exception(f"OI API error: {resp.status}")
+                    oi_data = await resp.json()
+                    oi_contracts = float(oi_data['openInterest'])
+                    binance_oi = oi_contracts * current_price  # 转换为 USD
+
+                # 3. 获取资金费率
+                funding_url = "https://fapi.binance.com/fapi/v1/premiumIndex"
+                async with session.get(funding_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                    if resp.status != 200:
+                        raise Exception(f"Funding API error: {resp.status}")
+                    funding_data = await resp.json()
+                    funding_rate = float(funding_data['lastFundingRate'])
+
+                # 4. 估算总 OI（Binance 通常占 40-60%，保守估计 50%）
+                total_oi = binance_oi * 2
+
+                return {
+                    'binance_oi': binance_oi,
+                    'total_oi': total_oi,
+                    'volume_24h': volume_24h,
+                    'volatility_24h': price_change_pct,
+                    'funding_rate': funding_rate,
+                }
+
+        except Exception as e:
+            logger.warning(f"Error fetching market data for {symbol}: {e}, using fallback")
+            # 返回安全的默认值（不会触发信号）
+            return {
+                'binance_oi': 0,
+                'total_oi': 0,
+                'volume_24h': 0,
+                'volatility_24h': 0,
+                'funding_rate': 0,
+            }
 
     async def _get_cached_price(self, symbol: str, timestamp: datetime) -> float:
         """从缓存获取历史价格"""
@@ -250,6 +332,96 @@ class CryptoMonitorBotPhase2:
 
         return None
 
+    async def _cache_price_history(self, price_data: Dict):
+        """缓存价格历史（回调函数）"""
+        try:
+            symbol = price_data['symbol']
+            price = price_data['price']
+            timestamp = datetime.fromtimestamp(price_data['timestamp'])
+
+            if symbol not in self.price_history:
+                self.price_history[symbol] = []
+
+            self.price_history[symbol].append((timestamp, price))
+
+            # 只保留 6 小时的数据
+            cutoff = datetime.now() - timedelta(hours=6)
+            self.price_history[symbol] = [
+                (ts, val) for ts, val in self.price_history[symbol]
+                if ts > cutoff
+            ]
+        except Exception as e:
+            logger.error(f"Error caching price history: {e}")
+
+    async def _run_oi_collection(self):
+        """定期采集 OI 数据"""
+        logger.info("📊 Starting OI collection...")
+
+        interval = 60  # 每 60 秒采集一次
+
+        try:
+            while self.running:
+                for symbol in self.symbols:
+                    try:
+                        # 从 Binance API 获取 OI
+                        oi = await self._fetch_binance_oi(symbol)
+
+                        if oi is not None:
+                            # 存储到历史记录
+                            now = datetime.now()
+                            if symbol not in self.oi_history:
+                                self.oi_history[symbol] = []
+
+                            self.oi_history[symbol].append((now, oi))
+
+                            # 只保留 6 小时的数据
+                            cutoff = now - timedelta(hours=6)
+                            self.oi_history[symbol] = [
+                                (ts, val) for ts, val in self.oi_history[symbol]
+                                if ts > cutoff
+                            ]
+
+                    except Exception as e:
+                        logger.debug(f"Error fetching OI for {symbol}: {e}")
+
+                await asyncio.sleep(interval)
+
+        except asyncio.CancelledError:
+            logger.info("OI collection task cancelled")
+        except Exception as e:
+            logger.error(f"OI collection error: {e}")
+
+    async def _fetch_binance_oi(self, symbol: str) -> Optional[float]:
+        """从 Binance API 获取当前 OI"""
+        import aiohttp
+
+        binance_symbol = symbol.replace('/', '')
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # 获取当前价格
+                ticker_url = "https://fapi.binance.com/fapi/v1/ticker/price"
+                async with session.get(ticker_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                    if resp.status != 200:
+                        return None
+                    price_data = await resp.json()
+                    current_price = float(price_data['price'])
+
+                # 获取 OI（合约数量）
+                oi_url = "https://fapi.binance.com/fapi/v1/openInterest"
+                async with session.get(oi_url, params={'symbol': binance_symbol}, timeout=5) as resp:
+                    if resp.status != 200:
+                        return None
+                    oi_data = await resp.json()
+                    oi_contracts = float(oi_data['openInterest'])
+
+                    # 转换为 USD
+                    return oi_contracts * current_price
+
+        except Exception as e:
+            logger.debug(f"Error fetching OI for {symbol}: {e}")
+            return None
+
     async def _handle_signal(self, signal):
         """处理信号"""
         # 更新统计
@@ -267,11 +439,11 @@ class CryptoMonitorBotPhase2:
         # 格式化消息
         message = self.signal_generator.format_telegram_message(signal)
 
-        # 日志输出
-        logger.warning(f"\n{'='*50}")
-        logger.warning(f"🎯 NEW SIGNAL: {signal.symbol} - {signal.strategy}")
-        logger.warning(message)
-        logger.warning(f"{'='*50}\n")
+        # 日志输出（使用 info 级别，信号是正常事件）
+        logger.info(f"\n{'='*50}")
+        logger.info(f"🎯 NEW SIGNAL: {signal.symbol} - {signal.strategy}")
+        logger.info(message)
+        logger.info(f"{'='*50}\n")
 
         # 发送 Telegram 通知
         try:

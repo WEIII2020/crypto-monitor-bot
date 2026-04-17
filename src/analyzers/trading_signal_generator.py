@@ -220,7 +220,7 @@ class TradingSignalGenerator:
         # 信号强度加成
         if signal_type == 'V4A_SHORT':
             # 支撑跌破幅度越大越好
-            support_break = signal.get('support_break', 0)
+            support_break = signal.get('support_break') or 0
             if support_break > 5:
                 confidence += 10
             elif support_break > 3:
@@ -228,7 +228,7 @@ class TradingSignalGenerator:
 
         elif signal_type == 'V7_SHORT':
             # 背离强度越大越好
-            divergence = signal.get('divergence_strength', 0)
+            divergence = signal.get('divergence_strength') or 0
             if divergence > 20:
                 confidence += 10
             elif divergence > 15:
@@ -236,8 +236,8 @@ class TradingSignalGenerator:
 
         elif signal_type == 'V8_SHORT':
             # 插针+OI骤降幅度越大越好
-            wick = signal.get('upper_wick_pct', 0)
-            oi_drop = abs(signal.get('oi_drop_30m', 0))
+            wick = signal.get('upper_wick_pct') or 0
+            oi_drop = abs(signal.get('oi_drop_30m') or 0)
             if wick > 8 and oi_drop > 20:
                 confidence += 15
             elif wick > 5 and oi_drop > 15:
@@ -245,7 +245,7 @@ class TradingSignalGenerator:
 
         elif signal_type == 'LONG':
             # 买方主导程度
-            buy_ratio = signal.get('buy_ratio', 50)
+            buy_ratio = signal.get('buy_ratio') or 50
             if buy_ratio > 80:
                 confidence += 10
             elif buy_ratio > 70:
