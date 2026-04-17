@@ -55,6 +55,9 @@ class BinanceRealtimeCollector(BaseCollector):
         self.write_buffer = []
         self.buffer_size = 100
 
+        # 回调函数（可选）
+        self.on_price_update = None
+
     async def connect(self):
         """连接到 Binance WebSocket"""
         try:
