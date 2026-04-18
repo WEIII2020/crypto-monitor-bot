@@ -193,6 +193,10 @@ class CryptoMonitorBotPhase2:
             # 3. 获取市场数据（OI、资金费率等）
             market_data = await self._get_market_data(symbol)
 
+            # 如果市场数据获取失败（限流等），跳过此币种
+            if not market_data:
+                return
+
             # 4. 合并数据（V8/LONG 需要的字段传递给 realtime_data）
             realtime_data['oi_30m_ago'] = historical_data.get('oi_30m_ago')
             realtime_data['current_oi'] = historical_data.get('current_oi')
@@ -351,16 +355,9 @@ class CryptoMonitorBotPhase2:
                     }
 
             except Exception as e:
-                logger.warning(f"Error fetching market data for {symbol}: {e}, using fallback")
-                # 返回安全的默认值（不会触发信号）
-                return {
-                    'binance_oi': 0,
-                    'total_oi': 0,
-                    'volume_24h': 0,
-                    'volatility_24h': 0,
-                    'funding_rate': 0,
-                    'data_quality': 'FAILED'
-                }
+                logger.debug(f"Error fetching market data for {symbol}: {e}, using fallback")
+                # 返回 None，让调用方跳过此币种（而不是返回全0导致误判）
+                return None
 
     async def _get_binance_volume_data(self, binance_symbol: str) -> Dict:
         """获取 Binance 24h 成交量和波动率数据"""
@@ -615,6 +612,16 @@ class CryptoMonitorBotPhase2:
                         f"LONG={'✅' if long_ready else '⏳'}, "
                         f"V7={'✅' if v7_ready else '⏳'}"
                     )
+
+                    # 显示操纵评分统计
+                    manip_scores = self.signal_generator.manipulation_detector.manipulation_scores
+                    if manip_scores:
+                        high_risk = sum(1 for s in manip_scores.values() if s.score >= 50)
+                        logger.info(
+                            f"🎲 操纵币统计: "
+                            f"总计={len(manip_scores)}币种, "
+                            f"高风险(≥50分)={high_risk}币种"
+                        )
 
         except asyncio.CancelledError:
             logger.info("Stats monitor task cancelled")

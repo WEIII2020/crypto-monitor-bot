@@ -100,6 +100,7 @@ class TradingSignalGenerator:
             )
 
             if not manipulation_score:
+                # 注意：不记录日志，因为大部分币种都是正常币（非妖币）
                 return []
 
             # 2. 检测各类信号
