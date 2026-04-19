@@ -1,0 +1,120 @@
+# Crypto Monitor Bot - 统一配置文件
+
+# 监控配置
+monitoring:
+  symbols_count: 200              # 监控的币种数量
+  test_mode: false                # true=5个币种测试，false=完整运行
+  test_symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - BNB/USDT
+    - SOL/USDT
+    - XRP/USDT
+
+# 数据采集
+data_collection:
+  binance_websocket:
+    reconnect_delay: 5            # 重连延迟（秒）
+    max_retries: 3                # 最大重试次数
+
+  history_cache:
+    price_window_hours: 6         # 价格历史窗口（小时）
+    oi_window_hours: 6            # OI 历史窗口（小时）
+    max_entries_per_symbol: 360   # 每个币种最大缓存条目
+
+# API 限流配置
+api:
+  max_concurrent: 8               # 最大并发请求数
+  base_delay: 0.1                 # 基础延迟（秒）
+  max_delay: 5.0                  # 最大延迟（秒）
+  max_retries: 3                  # 最大重试次数
+
+# 策略配置
+strategies:
+  v4a:
+    enabled: true
+    support_break_pct: 0.02       # 支撑跌破百分比
+    sell_pressure_threshold: 0.55 # 卖压阈值
+    max_holding_hours: 1          # 最大持仓时间
+    cooldown_hours: 4             # 冷却期（小时）
+
+  v7:
+    enabled: true
+    price_rise_threshold: 0.05    # 价格上涨阈值
+    oi_decline_threshold: -0.10   # OI 下降阈值
+    time_window_hours: 4          # 时间窗口（小时）
+    cooldown_hours: 4             # 冷却期（小时）
+
+  v8:
+    enabled: true
+    wick_threshold: 0.05          # 上影线阈值
+    oi_drop_30m: -0.15            # 30分钟 OI 骤降阈值
+    price_drop_threshold: -0.03   # 价格回落阈值
+    cooldown_hours: 2             # 冷却期（小时）
+
+  long:
+    enabled: true
+    buy_ratio_threshold: 0.70     # 买方主导阈值
+    oi_rise_threshold: 0.10       # OI 上升阈值
+    cooldown_hours: 2             # 冷却期（小时）
+
+# 操纵检测
+manipulation:
+  binance_oi_threshold: 0.4       # Binance OI 占比阈值
+  vol_oi_filter: 20.0             # vol/OI 刷量过滤阈值
+  min_score: 50                   # 最低操纵评分
+
+# 交易配置（Lana 引擎）
+trading:
+  enabled: false                  # 默认关闭自动交易
+  mode: simulation                # simulation / live
+
+  lana_rules:
+    max_loss_usdt: 200            # 最大亏损（USDT）
+    max_holding_seconds: 3600     # 最大持仓时间（秒）
+    min_signal_score: 85          # 最低信号分数
+    position_size_usdt: 1000      # 标准仓位（USDT）
+
+  binance:
+    api_key: ""                   # 从环境变量读取
+    api_secret: ""                # 从环境变量读取
+    testnet: true                 # true=测试网，false=正式环境
+
+# Telegram 通知
+telegram:
+  bot_token: ""                   # 从环境变量读取
+  chat_id: ""                     # 从环境变量读取
+  enabled: true
+
+  notifications:
+    signals: true                 # 交易信号通知
+    trades: true                  # 交易执行通知
+    errors: false                 # 错误通知
+    stats: true                   # 统计信息通知
+
+# 数据库配置
+database:
+  redis:
+    host: localhost
+    port: 6379
+    db: 0
+
+  postgres:
+    host: localhost
+    port: 5432
+    database: crypto_monitor
+    user: postgres
+    password: ""                  # 从环境变量读取
+
+# 性能监控
+performance:
+  stats_interval: 60              # 统计间隔（秒）
+  cleanup_interval: 3600          # 清理间隔（秒）
+  log_level: INFO                 # DEBUG / INFO / WARNING / ERROR
+
+# 运行模式
+# 可通过命令行参数 --mode 覆盖
+mode: signal                      # monitor / signal / trade
+# monitor: 只监控（Phase 1）
+# signal: 监控+信号（Phase 2，默认）
+# trade: 监控+信号+自动交易（Phase 2 + Lana）

@@ -13,6 +13,7 @@ Trading Signal Generator - 交易信号生成器
 from typing import Dict, Optional, List
 from datetime import datetime
 from dataclasses import dataclass
+import asyncio
 
 from src.analyzers.manipulation_detector_v2 import ManipulationDetectorV2, ManipulationScore
 from src.utils.logger import logger
@@ -71,6 +72,9 @@ class TradingSignalGenerator:
 
         # 信号历史（防重复）
         self.signal_history = {}  # {symbol: {strategy: last_timestamp}}
+
+        # 冷却期锁（防止并发竞态条件）
+        self._cooldown_locks = {}  # {symbol:strategy: Lock}
 
     async def generate_signals(
         self,
@@ -257,7 +261,7 @@ class TradingSignalGenerator:
 
     async def _check_cooldown(self, symbol: str, strategy: str) -> bool:
         """
-        检查冷却期
+        检查冷却期（线程安全）
 
         Args:
             symbol: 币种
@@ -266,25 +270,32 @@ class TradingSignalGenerator:
         Returns:
             True=可以发信号, False=在冷却期
         """
-        if symbol not in self.signal_history:
-            self.signal_history[symbol] = {}
+        # 为每个 symbol:strategy 组合创建独立的锁
+        lock_key = f"{symbol}:{strategy}"
+        if lock_key not in self._cooldown_locks:
+            self._cooldown_locks[lock_key] = asyncio.Lock()
 
-        last_time = self.signal_history[symbol].get(strategy)
+        # 使用锁保护临界区，防止并发竞态
+        async with self._cooldown_locks[lock_key]:
+            if symbol not in self.signal_history:
+                self.signal_history[symbol] = {}
 
-        if not last_time:
-            # 首次发信号
-            self.signal_history[symbol][strategy] = datetime.now()
-            return True
+            last_time = self.signal_history[symbol].get(strategy)
 
-        # 检查是否过了冷却期
-        elapsed = (datetime.now() - last_time).total_seconds()
-        cooldown = self.signal_cooldown.get(strategy, 3600)
+            if not last_time:
+                # 首次发信号
+                self.signal_history[symbol][strategy] = datetime.now()
+                return True
 
-        if elapsed >= cooldown:
-            self.signal_history[symbol][strategy] = datetime.now()
-            return True
+            # 检查是否过了冷却期
+            elapsed = (datetime.now() - last_time).total_seconds()
+            cooldown = self.signal_cooldown.get(strategy, 3600)
 
-        return False
+            if elapsed >= cooldown:
+                self.signal_history[symbol][strategy] = datetime.now()
+                return True
+
+            return False
 
     def format_telegram_message(self, signal: TradingSignal) -> str:
         """

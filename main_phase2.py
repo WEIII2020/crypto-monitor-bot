@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
 """
-Crypto Monitor Bot - Phase 2
-交易信号生成系统（做多/做空 + 妖币策略）
+Crypto Monitor Bot - 统一版本
+整合 Phase 1 + Phase 2 + Lana Trading Engine
 
 功能：
 - Phase 1: 毫秒级实时数据采集
-- Phase 2: V4A/V7/V8 妖币策略 + 做多/做空双向信号
-- 自动 Telegram 推送
+- Phase 2: V4A/V7/V8/LONG 策略 + 妖币检测
+- Lana Engine: 自动交易执行（可选）
+- 配置文件支持
+- 多运行模式（监控/信号/交易）
 """
 
 import asyncio
 import signal
 import sys
+import argparse
 from typing import Set, Dict, Optional
 from datetime import datetime, timedelta
+from collections import deque
 
 from src.utils.logger import logger
+from src.utils.config_loader import config
 from src.utils.symbol_selector import SymbolSelector
+from src.utils.api_rate_limiter import APIRateLimiter
 from src.database.redis_client import redis_client
 from src.database.postgres import postgres_client
 from src.collectors.binance_realtime_collector import BinanceRealtimeCollector
@@ -24,36 +30,72 @@ from src.analyzers.trading_signal_generator import TradingSignalGenerator
 from src.notifiers.telegram_notifier import TelegramNotifier
 
 
-class CryptoMonitorBotPhase2:
-    """Phase 2 交易信号系统"""
+class CryptoMonitorBot:
+    """
+    统一的加密货币监控机器人
 
-    def __init__(self):
+    支持三种运行模式：
+    - monitor: 只监控（Phase 1）
+    - signal: 监控+信号生成（Phase 2，默认）
+    - trade: 监控+信号+自动交易（Phase 2 + Lana）
+    """
+
+    def __init__(self, mode: str = 'signal'):
+        """
+        Args:
+            mode: 运行模式 ('monitor', 'signal', 'trade')
+        """
+        self.mode = mode
         self.running = False
         self.tasks: Set[asyncio.Task] = set()
+
+        logger.info(f"🎯 运行模式: {mode.upper()}")
 
         # Phase 1 组件
         self.collector = BinanceRealtimeCollector()
         self.symbol_selector = SymbolSelector()
 
-        # Phase 2 组件
-        self.signal_generator = TradingSignalGenerator()
-        self.notifier = TelegramNotifier()
+        # Phase 2 组件（signal 和 trade 模式）
+        self.signal_generator = None
+        self.notifier = None
+        self.multi_exchange_oi = None
 
-        # 多交易所 OI 聚合器（免费方案）
-        from src.data_sources.multi_exchange_oi import MultiExchangeOIAggregator
-        self.multi_exchange_oi = MultiExchangeOIAggregator()
+        if mode in ['signal', 'trade']:
+            self.signal_generator = TradingSignalGenerator()
+            self.notifier = TelegramNotifier()
 
-        # 监控配置
-        self.test_mode = False  # False = 200币种，True = 5币种测试
+            # 多交易所 OI 聚合器（免费方案）
+            from src.data_sources.multi_exchange_oi import MultiExchangeOIAggregator
+            self.multi_exchange_oi = MultiExchangeOIAggregator()
+
+        # Lana 交易引擎（trade 模式）
+        self.lana_engine = None
+        self.trade_executor = None
+
+        if mode == 'trade' and config.get('trading.enabled', False):
+            from src.trading import LanaRuleEngine, BinanceTradeExecutor
+            self.lana_engine = LanaRuleEngine()
+            self.trade_executor = BinanceTradeExecutor(
+                api_key=config.get('trading.binance.api_key', ''),
+                api_secret=config.get('trading.binance.api_secret', ''),
+                testnet=config.get('trading.binance.testnet', True)
+            )
+            logger.info("✅ Lana 交易引擎已启用")
+
+        # 监控配置（从配置文件读取）
+        self.test_mode = config.get('monitoring.test_mode', False)
         self.symbols = []
 
         # 历史数据缓存（用于 V7 等策略）
-        self.price_history = {}  # {symbol: [(timestamp, price), ...]}
-        self.oi_history = {}     # {symbol: [(timestamp, oi), ...]}
+        # 使用 deque 避免内存泄漏，每个币种最多保留 360 个数据点（6小时 × 60分钟）
+        self.price_history = {}  # {symbol: deque(maxlen=360)}
+        self.oi_history = {}     # {symbol: deque(maxlen=360)}
 
-        # API 速率限制（防止 418 限流）
-        self.api_semaphore = asyncio.Semaphore(10)  # 最多 10 个并发 API 请求
-        self.api_delay = 0.05  # 每次请求后延迟 50ms
+        # 历史数据清理时间戳（每小时清理一次过期的 symbol）
+        self._last_cleanup_time = datetime.now()
+
+        # API 速率限制（防止 418 限流）- 使用新的限流器
+        self.api_rate_limiter = APIRateLimiter(max_concurrent=8, base_delay=0.1)
 
         # 性能统计
         self.stats = {
@@ -295,69 +337,60 @@ class CryptoMonitorBotPhase2:
         except Exception as e:
             logger.debug(f"Multi-exchange OI failed for {symbol}, fallback to Binance only: {e}")
 
-        # 方案 B：Fallback 到单 Binance（原有逻辑）
+        # 方案 B：Fallback 到单 Binance（使用新的限流器）
         binance_symbol = symbol.replace('/', '')
 
-        # 使用信号量限制并发
-        async with self.api_semaphore:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    # 1. 获取当前价格（用于 OI 转换）
-                    ticker_url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
-                    async with session.get(ticker_url, params={'symbol': binance_symbol}, timeout=5) as resp:
-                        if resp.status == 418:  # 限流
-                            logger.debug(f"Rate limited for {symbol}, using fallback")
-                            raise Exception("Rate limited")
-                        if resp.status != 200:
-                            raise Exception(f"Ticker API error: {resp.status}")
-                        ticker_data = await resp.json()
-                        current_price = float(ticker_data['lastPrice'])
-                        volume_24h = float(ticker_data['quoteVolume'])
-                        price_change_pct = abs(float(ticker_data['priceChangePercent'])) / 100
+        try:
+            async with aiohttp.ClientSession() as session:
+                # 1. 获取当前价格（用于 OI 转换）
+                ticker_url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
+                ticker_data = await self.api_rate_limiter.fetch_with_retry(
+                    session, ticker_url, {'symbol': binance_symbol}
+                )
+                if not ticker_data:
+                    return None
 
-                    # 延迟（防止限流）
-                    await asyncio.sleep(self.api_delay)
+                current_price = float(ticker_data['lastPrice'])
+                volume_24h = float(ticker_data['quoteVolume'])
+                price_change_pct = abs(float(ticker_data['priceChangePercent'])) / 100
 
-                    # 2. 获取 Binance OI（合约数量）
-                    oi_url = "https://fapi.binance.com/fapi/v1/openInterest"
-                    async with session.get(oi_url, params={'symbol': binance_symbol}, timeout=5) as resp:
-                        if resp.status == 418:
-                            raise Exception("Rate limited")
-                        if resp.status != 200:
-                            raise Exception(f"OI API error: {resp.status}")
-                        oi_data = await resp.json()
-                        oi_contracts = float(oi_data['openInterest'])
-                        binance_oi = oi_contracts * current_price  # 转换为 USD
+                # 2. 获取 Binance OI（合约数量）
+                oi_url = "https://fapi.binance.com/fapi/v1/openInterest"
+                oi_data = await self.api_rate_limiter.fetch_with_retry(
+                    session, oi_url, {'symbol': binance_symbol}
+                )
+                if not oi_data:
+                    return None
 
-                    await asyncio.sleep(self.api_delay)
+                oi_contracts = float(oi_data['openInterest'])
+                binance_oi = oi_contracts * current_price  # 转换为 USD
 
-                    # 3. 获取资金费率
-                    funding_url = "https://fapi.binance.com/fapi/v1/premiumIndex"
-                    async with session.get(funding_url, params={'symbol': binance_symbol}, timeout=5) as resp:
-                        if resp.status == 418:
-                            raise Exception("Rate limited")
-                        if resp.status != 200:
-                            raise Exception(f"Funding API error: {resp.status}")
-                        funding_data = await resp.json()
-                        funding_rate = float(funding_data['lastFundingRate'])
+                # 3. 获取资金费率
+                funding_url = "https://fapi.binance.com/fapi/v1/premiumIndex"
+                funding_data = await self.api_rate_limiter.fetch_with_retry(
+                    session, funding_url, {'symbol': binance_symbol}
+                )
+                if not funding_data:
+                    return None
 
-                    # 4. 估算总 OI（Binance 通常占 40-60%，保守估计 50%）
-                    total_oi = binance_oi * 2
+                funding_rate = float(funding_data['lastFundingRate'])
 
-                    return {
-                        'binance_oi': binance_oi,
-                        'total_oi': total_oi,
-                        'binance_ratio': 0.50,  # 估算值
-                        'volume_24h': volume_24h,
-                        'volatility_24h': price_change_pct,
-                        'funding_rate': funding_rate,
-                        'data_quality': 'ESTIMATED'  # ⚠️ 估算值
-                    }
+                # 4. 估算总 OI（Binance 通常占 40-60%，保守估计 50%）
+                total_oi = binance_oi * 2
 
-            except Exception as e:
-                logger.debug(f"Error fetching market data for {symbol}: {e}, using fallback")
-                # 返回 None，让调用方跳过此币种（而不是返回全0导致误判）
-                return None
+                return {
+                    'binance_oi': binance_oi,
+                    'total_oi': total_oi,
+                    'binance_ratio': 0.50,  # 估算值
+                    'volume_24h': volume_24h,
+                    'volatility_24h': price_change_pct,
+                    'funding_rate': funding_rate,
+                    'data_quality': 'ESTIMATED'  # ⚠️ 估算值
+                }
+
+        except Exception as e:
+            logger.debug(f"Error fetching market data for {symbol}: {e}")
+            return None
 
     async def _get_binance_volume_data(self, binance_symbol: str) -> Dict:
         """获取 Binance 24h 成交量和波动率数据"""
@@ -420,25 +453,49 @@ class CryptoMonitorBotPhase2:
         return None
 
     async def _cache_price_history(self, price_data: Dict):
-        """缓存价格历史（回调函数）"""
+        """缓存价格历史（回调函数）- 优化版，避免内存泄漏"""
         try:
             symbol = price_data['symbol']
             price = price_data['price']
             timestamp = datetime.fromtimestamp(price_data['timestamp'])
 
+            # 使用 deque 自动限制长度，无需手动清理
             if symbol not in self.price_history:
-                self.price_history[symbol] = []
+                self.price_history[symbol] = deque(maxlen=360)
 
             self.price_history[symbol].append((timestamp, price))
 
-            # 只保留 6 小时的数据
-            cutoff = datetime.now() - timedelta(hours=6)
-            self.price_history[symbol] = [
-                (ts, val) for ts, val in self.price_history[symbol]
-                if ts > cutoff
-            ]
+            # 每小时清理一次不再监控的币种（避免无限增长）
+            now = datetime.now()
+            if (now - self._last_cleanup_time).total_seconds() >= 3600:
+                self._cleanup_stale_histories()
+                self._last_cleanup_time = now
+
         except Exception as e:
             logger.error(f"Error caching price history: {e}")
+
+    def _cleanup_stale_histories(self):
+        """清理不再监控的币种的历史数据"""
+        try:
+            monitored_symbols = set(self.symbols)
+
+            # 清理 price_history
+            stale_price_symbols = [s for s in self.price_history.keys() if s not in monitored_symbols]
+            for symbol in stale_price_symbols:
+                del self.price_history[symbol]
+
+            # 清理 oi_history
+            stale_oi_symbols = [s for s in self.oi_history.keys() if s not in monitored_symbols]
+            for symbol in stale_oi_symbols:
+                del self.oi_history[symbol]
+
+            if stale_price_symbols or stale_oi_symbols:
+                logger.info(
+                    f"🧹 清理历史数据: 移除 {len(stale_price_symbols)} 个价格记录, "
+                    f"{len(stale_oi_symbols)} 个 OI 记录"
+                )
+        except Exception as e:
+            logger.error(f"Error cleaning up stale histories: {e}")
 
     async def _run_oi_collection(self):
         """定期采集 OI 数据"""
@@ -454,19 +511,12 @@ class CryptoMonitorBotPhase2:
                         oi = await self._fetch_binance_oi(symbol)
 
                         if oi is not None:
-                            # 存储到历史记录
+                            # 存储到历史记录（使用 deque 自动限制长度）
                             now = datetime.now()
                             if symbol not in self.oi_history:
-                                self.oi_history[symbol] = []
+                                self.oi_history[symbol] = deque(maxlen=360)
 
                             self.oi_history[symbol].append((now, oi))
-
-                            # 只保留 6 小时的数据
-                            cutoff = now - timedelta(hours=6)
-                            self.oi_history[symbol] = [
-                                (ts, val) for ts, val in self.oi_history[symbol]
-                                if ts > cutoff
-                            ]
 
                     except Exception as e:
                         logger.debug(f"Error fetching OI for {symbol}: {e}")
@@ -479,43 +529,37 @@ class CryptoMonitorBotPhase2:
             logger.error(f"OI collection error: {e}")
 
     async def _fetch_binance_oi(self, symbol: str) -> Optional[float]:
-        """从 Binance API 获取当前 OI - 带速率限制"""
+        """从 Binance API 获取当前 OI - 使用新的限流器"""
         import aiohttp
 
         binance_symbol = symbol.replace('/', '')
 
-        # 使用信号量限制并发
-        async with self.api_semaphore:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    # 获取当前价格
-                    ticker_url = "https://fapi.binance.com/fapi/v1/ticker/price"
-                    async with session.get(ticker_url, params={'symbol': binance_symbol}, timeout=5) as resp:
-                        if resp.status == 418:
-                            return None  # 限流，跳过
-                        if resp.status != 200:
-                            return None
-                        price_data = await resp.json()
-                        current_price = float(price_data['price'])
+        try:
+            async with aiohttp.ClientSession() as session:
+                # 获取当前价格
+                ticker_url = "https://fapi.binance.com/fapi/v1/ticker/price"
+                price_data = await self.api_rate_limiter.fetch_with_retry(
+                    session, ticker_url, {'symbol': binance_symbol}
+                )
+                if not price_data:
+                    return None
+                current_price = float(price_data['price'])
 
-                    await asyncio.sleep(self.api_delay)
+                # 获取 OI（合约数量）
+                oi_url = "https://fapi.binance.com/fapi/v1/openInterest"
+                oi_data = await self.api_rate_limiter.fetch_with_retry(
+                    session, oi_url, {'symbol': binance_symbol}
+                )
+                if not oi_data:
+                    return None
+                oi_contracts = float(oi_data['openInterest'])
 
-                    # 获取 OI（合约数量）
-                    oi_url = "https://fapi.binance.com/fapi/v1/openInterest"
-                    async with session.get(oi_url, params={'symbol': binance_symbol}, timeout=5) as resp:
-                        if resp.status == 418:
-                            return None  # 限流，跳过
-                        if resp.status != 200:
-                            return None
-                        oi_data = await resp.json()
-                        oi_contracts = float(oi_data['openInterest'])
+                # 转换为 USD
+                return oi_contracts * current_price
 
-                        # 转换为 USD
-                        return oi_contracts * current_price
-
-            except Exception as e:
-                logger.debug(f"Error fetching OI for {symbol}: {e}")
-                return None
+        except Exception as e:
+            logger.debug(f"Error fetching OI for {symbol}: {e}")
+            return None
 
     async def _handle_signal(self, signal):
         """处理信号"""
@@ -578,6 +622,16 @@ class CryptoMonitorBotPhase2:
                     f"{collector_stats['avg_latency_ms']}ms latency"
                 )
 
+                # API 限流器统计
+                api_stats = self.api_rate_limiter.get_stats()
+                logger.info(
+                    f"🌐 API Stats: "
+                    f"{api_stats['total_requests']} 请求, "
+                    f"成功率 {api_stats['success_rate']:.1f}%, "
+                    f"限流 {api_stats['rate_limited']} 次 ({api_stats['rate_limit_pct']:.1f}%), "
+                    f"当前延迟 {api_stats['current_delay']:.2f}s"
+                )
+
                 # 策略状态报告（每 5 分钟）
                 from datetime import datetime
                 now = datetime.now()
@@ -629,7 +683,59 @@ class CryptoMonitorBotPhase2:
 
 async def main():
     """主函数"""
-    bot = CryptoMonitorBotPhase2()
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(
+        description='Crypto Monitor Bot - 统一版本',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+运行模式说明:
+  monitor  - 只监控（Phase 1：实时数据采集）
+  signal   - 监控+信号（Phase 2：V4A/V7/V8/LONG 策略，默认）
+  trade    - 监控+信号+自动交易（Phase 2 + Lana 引擎）
+
+示例:
+  python main_phase2.py                    # 默认 signal 模式
+  python main_phase2.py --mode monitor     # 只监控
+  python main_phase2.py --mode trade       # 启用自动交易
+  python main_phase2.py --config custom.yaml  # 自定义配置
+        """
+    )
+    parser.add_argument(
+        '--mode',
+        choices=['monitor', 'signal', 'trade'],
+        default=config.get('mode', 'signal'),
+        help='运行模式（默认: signal）'
+    )
+    parser.add_argument(
+        '--config',
+        type=str,
+        help='配置文件路径（默认: config/config.yaml）'
+    )
+    parser.add_argument(
+        '--test',
+        action='store_true',
+        help='测试模式（监控 5 个币种）'
+    )
+
+    args = parser.parse_args()
+
+    # 重新加载配置（如果指定了自定义配置文件）
+    if args.config:
+        global config
+        from src.utils.config_loader import ConfigLoader
+        config = ConfigLoader(args.config)
+
+    # 测试模式覆盖
+    if args.test:
+        config.set('monitoring.test_mode', True)
+
+    # 验证配置
+    if not config.validate():
+        logger.error("❌ 配置验证失败")
+        sys.exit(1)
+
+    # 创建 Bot 实例
+    bot = CryptoMonitorBot(mode=args.mode)
 
     def signal_handler(signum, frame):
         logger.info("Received interrupt signal")
@@ -638,6 +744,11 @@ async def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
+    # 启动 Bot
+    logger.info("=" * 60)
+    logger.info(f"🚀 Crypto Monitor Bot - {args.mode.upper()} 模式")
+    logger.info("=" * 60)
+
     await bot.start()
 
 
@@ -645,7 +756,9 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Phase 2 stopped by user")
+        logger.info("Bot stopped by user")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
