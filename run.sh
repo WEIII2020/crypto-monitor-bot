@@ -24,7 +24,7 @@ source venv/bin/activate
 
 # 检查依赖
 echo "📦 检查依赖..."
-pip install -q -r requirements.txt
+python3 -m pip install -q -r requirements.txt 2>/dev/null || echo "⚠️  跳过依赖检查"
 
 # 解析命令行参数
 MODE="${1:-signal}"  # 默认 signal 模式

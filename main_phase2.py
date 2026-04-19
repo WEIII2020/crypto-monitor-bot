@@ -721,9 +721,9 @@ async def main():
 
     # 重新加载配置（如果指定了自定义配置文件）
     if args.config:
-        global config
         from src.utils.config_loader import ConfigLoader
-        config = ConfigLoader(args.config)
+        import src.utils.config_loader as config_module
+        config_module.config = ConfigLoader(args.config)
 
     # 测试模式覆盖
     if args.test:
