@@ -1,0 +1,32 @@
+# Hermes Agent 配置
+
+# Telegram Bot
+telegram:
+  bot_token: ""  # 从环境变量读取 HERMES_BOT_TOKEN
+  enabled: true
+
+  # 命令配置
+  commands:
+    enabled:
+      - status
+      - signals
+      - price
+      - oi
+      - strategies
+      - positions
+      - config
+      - logs
+      - stats
+
+# 数据桥接
+data_bridge:
+  redis_host: localhost
+  redis_port: 6379
+  postgres_host: localhost
+  postgres_port: 5432
+
+# 功能开关
+features:
+  interactive_mode: true      # 交互模式
+  auto_response: true         # 自动响应
+  command_logging: true       # 命令日志
